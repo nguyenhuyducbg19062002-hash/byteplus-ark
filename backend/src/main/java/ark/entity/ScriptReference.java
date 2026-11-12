@@ -26,8 +26,11 @@ import lombok.Setter;
 public class ScriptReference {
     public enum Kind { CHARACTER, LOCATION, PROP, OTHER }
 
-    /** Trạng thái tạo ảnh tự động bằng Seedream. */
-    public enum ImageStatus { NONE, PENDING, GENERATING, SUCCEEDED, FAILED }
+    /**
+     * Trạng thái tạo ảnh tự động bằng Seedream:
+     * PENDING → GENERATING → REVIEW (ảnh mới nằm ở thư mục chờ duyệt) → SUCCEEDED khi người dùng duyệt.
+     */
+    public enum ImageStatus { NONE, PENDING, GENERATING, REVIEW, SUCCEEDED, FAILED }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -51,6 +54,9 @@ public class ScriptReference {
 
     /** GeneratedFile.id của ảnh đã gán (null = còn thiếu). */
     private Long fileId;
+
+    /** Ảnh AI vừa tạo, đang chờ duyệt (output/assets/&lt;dự án&gt;/_cho-duyet/…) – chưa dùng cho clip. */
+    private Long pendingFileId;
 
     /** Prompt tạo ảnh (tự sinh từ mô tả trong Excel, người dùng sửa được). */
     @Lob
@@ -87,6 +93,12 @@ public class ScriptReference {
 
     public ImageStatus getImageStatus() {
         return imageStatus == null ? ImageStatus.NONE : imageStatus;
+    }
+
+    /** Đang tạo / chờ duyệt ảnh mới → ảnh cũ (nếu có) không được dùng cho clip. */
+    public boolean isAwaitingImage() {
+        ImageStatus s = getImageStatus();
+        return s == ImageStatus.PENDING || s == ImageStatus.GENERATING || s == ImageStatus.REVIEW;
     }
 
     public static Kind kindOf(String code) {

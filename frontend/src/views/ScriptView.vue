@@ -38,7 +38,7 @@ const refs = useAsync(() => api.get(`/script-projects/${currentId.value}/referen
 const importing = ref(false)
 const importResult = ref(null)
 const busy = ref('')
-const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '' })
+const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', autoApproveImages: false })
 const settingsErrors = ref({})
 const redo = reactive({ codes: '', note: '' })
 const expanded = ref([])
@@ -54,10 +54,16 @@ const imageModel = computed(() => models.image.find((m) => m.id === settings.ima
 const IMAGE_STATUS = {
   PENDING: { status: 'queued', label: 'Chờ tạo ảnh' },
   GENERATING: { status: 'running', label: 'Đang tạo ảnh' },
+  REVIEW: { status: 'info', label: 'Chờ duyệt' },
   SUCCEEDED: { status: 'succeeded', label: 'AI đã tạo' },
   FAILED: { status: 'failed', label: 'Tạo ảnh lỗi' }
 }
 const missingRefs = computed(() => refs.data.value.filter((r) => !r.file && r.usedBy > 0).length)
+/** Mã có ảnh AI chờ duyệt được đưa lên đầu lưới. */
+const sortedRefs = computed(() => {
+  const list = refs.data.value || []
+  return [...list.filter((r) => r.imageStatus === 'REVIEW'), ...list.filter((r) => r.imageStatus !== 'REVIEW')]
+})
 /** Ảnh nhân vật đã có nhưng chưa có asset Virtual Portrait Active. */
 const vpPending = computed(() =>
   refs.data.value.filter((r) => r.file && (r.kind === 'CHARACTER' || r.blockedReason) && r.file.assetStatus !== 'Active' && r.file.assetStatus !== 'Processing')
@@ -140,7 +146,7 @@ watch(filter, () => {
 function pick(p) {
   return {
     model: p.model, resolution: p.resolution, ratio: p.ratio, generateAudio: p.generateAudio, maxParallel: p.maxParallel,
-    maxAttempts: p.maxAttempts, imageModel: p.imageModel, imageSize: p.imageSize
+    maxAttempts: p.maxAttempts, imageModel: p.imageModel, imageSize: p.imageSize, autoApproveImages: p.autoApproveImages
   }
 }
 watch(
@@ -256,6 +262,28 @@ async function generateRefs(codes = [], overwrite = false) {
     refs.data.value = await api.post(`/script-projects/${currentId.value}/references/generate`, { codes, overwrite })
   })
   ElMessage.success(codes.length ? `Đã đưa ${codes.join(', ')} vào hàng đợi tạo ảnh` : 'Đã đưa các mã còn thiếu vào hàng đợi tạo ảnh')
+}
+/** Duyệt ảnh AI: backend đổi tên thành MÃ.đuôi trong thư mục ảnh tham chiếu của dự án (tự tạo thư mục) và gán cho mã. */
+async function approveRef(r) {
+  await act('approve' + r.code, () => api.post(`/script-projects/${currentId.value}/references/${encodeURIComponent(r.code)}/approve`))
+  await refs.run()
+  ElMessage.success(`Đã duyệt ${r.code} – lưu vào ảnh tham chiếu`)
+}
+async function rejectRef(r) {
+  await act('reject' + r.code, () => api.post(`/script-projects/${currentId.value}/references/${encodeURIComponent(r.code)}/reject`))
+  await refs.run()
+}
+async function approveAll() {
+  const n = project.value?.imagesReview || 0
+  await ElMessageBox.confirm(`Duyệt ${n} ảnh đang chờ? Ảnh được đổi tên theo mã và dùng ngay cho clip.`, 'Duyệt tất cả', { type: 'info' })
+  try {
+    await act('approveAll', async () => {
+      refs.data.value = await api.post(`/script-projects/${currentId.value}/references/approve-all`)
+    })
+    ElMessage.success(`Đã duyệt ${n} ảnh`)
+  } finally {
+    refs.run()
+  }
 }
 async function stopRefs() {
   await act('stopgen', async () => {
@@ -408,7 +436,11 @@ function downloadZip(what) {
             {{ project.pausedReason }}
           </p>
           <p v-if="project.imagesPending" class="mt-1 text-sm text-indigo-600 dark:text-indigo-400">
-            Đang tạo {{ project.imagesPending }} ảnh tham chiếu bằng AI – clip dùng các ảnh này sẽ chạy khi ảnh xong.
+            Đang tạo {{ project.imagesPending }} ảnh tham chiếu bằng AI – clip dùng các ảnh này sẽ chạy khi ảnh được duyệt.
+          </p>
+          <p v-if="project.imagesReview" class="mt-1 text-sm text-indigo-600 dark:text-indigo-400">
+            Có {{ project.imagesReview }} ảnh AI đang chờ duyệt –
+            <el-link type="primary" @click="tab = 'refs'">mở tab Ảnh tham chiếu</el-link> để duyệt / tạo lại. Clip dùng các mã này chờ đến khi ảnh được duyệt.
           </p>
           <p v-if="project.cooldownUntil && project.status === 'RUNNING'" class="mt-1 text-xs text-amber-600">
             BytePlus đang giới hạn tốc độ – tạm nghỉ đến {{ formatTime(project.cooldownUntil) }}
@@ -481,6 +513,7 @@ function downloadZip(what) {
               </div>
               <div class="mt-4 flex flex-wrap items-center gap-4">
                 <el-checkbox v-model="settings.generateAudio">Tạo âm thanh (thoại trong prompt)</el-checkbox>
+                <el-checkbox v-model="settings.autoApproveImages">Tự duyệt ảnh AI (bỏ qua bước chờ duyệt)</el-checkbox>
                 <el-button type="primary" plain :loading="busy === 'settings'" @click="saveSettings">Lưu cấu hình</el-button>
                 <span class="hint">Mỗi clip dùng thời lượng ghi trong kịch bản (cột DÀI). Song song nhiều quá dễ bị BytePlus trả 429 – app sẽ tự chờ rồi gửi lại.</span>
               </div>
@@ -606,10 +639,14 @@ function downloadZip(what) {
           <el-tab-pane name="refs">
             <template #label>
               Ảnh tham chiếu <el-badge v-if="project.refsMissing" :value="project.refsMissing" class="ml-1" type="danger" />
+              <el-badge v-if="project.imagesReview" :value="project.imagesReview" class="ml-1" type="primary" title="Chờ duyệt" />
             </template>
             <div class="mb-4 flex flex-wrap items-center gap-3">
               <el-button type="primary" :disabled="!project.refsMissing || project.imagesPending > 0" :loading="busy === 'gen'" @click="generateRefs()">
                 <el-icon><MagicStick /></el-icon>&nbsp;Tạo bằng AI các ảnh còn thiếu ({{ project.refsMissing }})
+              </el-button>
+              <el-button v-if="project.imagesReview" type="success" :loading="busy === 'approveAll'" @click="approveAll">
+                <el-icon><Select /></el-icon>&nbsp;Duyệt tất cả ({{ project.imagesReview }})
               </el-button>
               <el-button v-if="project.imagesPending" type="warning" plain :loading="busy === 'stopgen'" @click="stopRefs">Dừng tạo ảnh ({{ project.imagesPending }})</el-button>
               <el-button v-if="vpPending.length" type="warning" plain :loading="busy === 'vp'" @click="pushCharactersToVp">
@@ -620,6 +657,7 @@ function downloadZip(what) {
               <el-button type="primary" plain :loading="busy === 'vpmatch'" @click="matchVpAssets"><el-icon><Connection /></el-icon>&nbsp;Ghép asset VP theo tên</el-button>
               <p class="hint max-w-3xl">
                 Ảnh nhân vật lấy từ máy được app tự đẩy lên Virtual Portrait (qua bucket TOS riêng tư) trước khi gửi clip – hoặc bấm nút đẩy trước cho nhanh.
+                Ảnh tạo bằng AI vào mục <b>chờ duyệt</b> trước (<code>_cho-duyet/</code>): bấm <b>Duyệt</b> để đổi tên thành <code>MÃ.jpeg</code> trong thư mục ảnh tham chiếu của dự án (ảnh cũ chuyển vào <code>_cu/</code>), hoặc <b>Tạo lại</b> / <b>Bỏ</b>.
                 Prompt ảnh được viết sẵn từ mô tả nhân vật / bối cảnh / đạo cụ trong Excel (bấm “Prompt” để xem, sửa). Nhân vật nhiều bộ đồ:
                 bộ đầu được tạo trước và dùng làm tham chiếu khuôn mặt cho các bộ sau. Hoặc đặt tên file đúng mã (vd <code>CHAR_YVO_NAVYTEE_01.png</code>) rồi bấm “Tự ghép”, hoặc tải lên / chọn từ thư viện cho từng mã.
                 Ảnh nhân vật là người thật nên đẩy vào <b>Virtual Portrait</b> trước – khi ảnh đã có asset Active, app gửi <code>asset://</code> để Seedance không chặn mặt người.
@@ -627,10 +665,27 @@ function downloadZip(what) {
             </div>
             <AsyncState :loading="refs.loading.value && !refs.data.value.length" :error="refs.error.value" :empty="!refs.data.value.length" empty-text="Dự án chưa có mã ảnh tham chiếu" @retry="refs.run()">
               <div class="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-4">
-                <div v-for="r in refs.data.value" :key="r.code" class="overflow-hidden rounded-xl bg-slate-50 ring-1 dark:bg-zinc-900/50" :class="r.file && !r.blockedReason ? 'ring-slate-200/70 dark:ring-zinc-700/60' : 'ring-2 ring-rose-400 dark:ring-rose-500/60'">
+                <div
+                  v-for="r in sortedRefs"
+                  :key="r.code"
+                  class="overflow-hidden rounded-xl bg-slate-50 ring-1 dark:bg-zinc-900/50"
+                  :class="r.pendingFile ? 'ring-2 ring-indigo-400 dark:ring-indigo-500/60' : r.file && !r.blockedReason ? 'ring-slate-200/70 dark:ring-zinc-700/60' : 'ring-2 ring-rose-400 dark:ring-rose-500/60'"
+                >
                   <div class="relative aspect-video bg-slate-100 dark:bg-zinc-800">
-                    <img v-if="r.file" :src="r.file.url" loading="lazy" class="h-full w-full object-cover" />
+                    <el-image
+                      v-if="r.pendingFile"
+                      :src="r.pendingFile.url"
+                      :preview-src-list="r.file ? [r.pendingFile.url, r.file.url] : [r.pendingFile.url]"
+                      preview-teleported
+                      fit="cover"
+                      class="h-full w-full"
+                    />
+                    <img v-else-if="r.file" :src="r.file.url" loading="lazy" class="h-full w-full object-cover" />
                     <div v-else class="grid h-full place-items-center text-sm text-rose-500"><span><el-icon><Picture /></el-icon> Chưa có ảnh</span></div>
+                    <div v-if="r.pendingFile && r.file" class="absolute bottom-2 right-2 overflow-hidden rounded-md ring-2 ring-white/90 dark:ring-zinc-900/90" title="Ảnh hiện tại (sẽ chuyển vào _cu/ khi duyệt ảnh mới)">
+                      <img :src="r.file.url" loading="lazy" class="h-12 w-20 object-cover" />
+                      <span class="absolute inset-x-0 bottom-0 bg-black/55 text-center text-[10px] text-white">ảnh cũ</span>
+                    </div>
                     <span class="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-900/90 dark:text-zinc-300">{{ KIND[r.kind] }} · {{ r.usedBy }} clip</span>
                     <span v-if="IMAGE_STATUS[r.imageStatus] && r.imageStatus !== 'SUCCEEDED'" class="absolute bottom-2 left-2"><StatusBadge :status="IMAGE_STATUS[r.imageStatus].status" :label="IMAGE_STATUS[r.imageStatus].label" /></span>
                     <span v-if="r.file?.assetId" class="absolute right-2 top-2"><StatusBadge :status="r.file.assetStatus" :label="'VP ' + (r.file.assetStatus || '')" /></span>
@@ -644,12 +699,17 @@ function downloadZip(what) {
                     </div>
                     <div v-if="r.identityCode" class="text-[11px] text-indigo-600 dark:text-indigo-400">Giữ khuôn mặt theo {{ r.identityCode }}</div>
                     <div v-if="r.imageError" class="line-clamp-2 text-[11px]" :class="r.imageStatus === 'FAILED' ? 'text-rose-600' : 'text-slate-500'" :title="r.imageError">{{ r.imageError }}</div>
+                    <div v-if="r.imageStatus === 'REVIEW'" class="flex flex-wrap gap-1 rounded-lg bg-indigo-50 p-2 dark:bg-indigo-500/10">
+                      <el-button size="small" type="success" :loading="busy === 'approve' + r.code" @click="approveRef(r)"><el-icon><Select /></el-icon>&nbsp;Duyệt</el-button>
+                      <el-button size="small" type="primary" plain :loading="busy === 'gen' + r.code" @click="generateRefs([r.code], true)"><el-icon><RefreshRight /></el-icon>&nbsp;Tạo lại</el-button>
+                      <el-button size="small" text type="danger" :loading="busy === 'reject' + r.code" @click="rejectRef(r)">Bỏ ảnh mới</el-button>
+                    </div>
                     <div class="flex flex-wrap gap-1 pt-2">
                       <el-upload :show-file-list="false" accept="image/*" :auto-upload="false" :on-change="(f) => uploadRef(r.code, f.raw)">
                         <el-button size="small" :loading="busy === 'ref' + r.code"><el-icon><Upload /></el-icon>&nbsp;Tải lên</el-button>
                       </el-upload>
                       <el-button size="small" @click="pickerFor = r.code"><el-icon><Files /></el-icon>&nbsp;Thư viện</el-button>
-                      <el-button size="small" type="primary" plain :disabled="r.imageStatus === 'PENDING' || r.imageStatus === 'GENERATING'" :loading="busy === 'gen' + r.code" @click="generateRefs([r.code], true)">
+                      <el-button v-if="r.imageStatus !== 'REVIEW'" size="small" type="primary" plain :disabled="r.imageStatus === 'PENDING' || r.imageStatus === 'GENERATING'" :loading="busy === 'gen' + r.code" @click="generateRefs([r.code], true)">
                         <el-icon><MagicStick /></el-icon>&nbsp;{{ r.file ? 'Tạo lại AI' : 'Tạo AI' }}
                       </el-button>
                       <el-button size="small" text @click="openPrompt(r)">Prompt</el-button>

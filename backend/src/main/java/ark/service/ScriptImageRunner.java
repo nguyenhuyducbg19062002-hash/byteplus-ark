@@ -42,7 +42,9 @@ import lombok.extern.slf4j.Slf4j;
  * Hàng đợi tạo ảnh tham chiếu bằng Seedream cho các mã đang PENDING (chạy độc lập với trạng thái video của dự án).
  * <ul>
  * <li>Nhân vật nhiều bộ trang phục: ảnh bộ đầu (identityCode) được tạo trước và dùng làm tham chiếu khuôn mặt cho các bộ sau.</li>
- * <li>Ảnh xong được lưu thành output/assets/&lt;dự án&gt;/&lt;mã&gt;.jpeg, gán ngay cho mã, và tự đẩy Virtual Portrait nếu bật.</li>
+ * <li>Ảnh xong được lưu vào thư mục chờ duyệt output/assets/&lt;dự án&gt;/_cho-duyet/&lt;mã&gt;_&lt;thời gian&gt;.jpeg (REVIEW),
+ * chưa dùng cho clip. Khi duyệt ({@link #approve}): đổi tên thành output/assets/&lt;dự án&gt;/&lt;mã&gt;.jpeg (tự tạo thư mục),
+ * ảnh cũ chuyển vào _cu/, gán cho mã rồi mới tự đẩy Virtual Portrait. Dự án bật "tự duyệt" thì duyệt ngay.</li>
  * <li>429: chờ 60s; 5xx / mạng: thử lại tới maxAttempts; nội dung bị từ chối / sai tham số: FAILED.</li>
  * </ul>
  */
@@ -52,6 +54,10 @@ import lombok.extern.slf4j.Slf4j;
 public class ScriptImageRunner {
     public static final String DEFAULT_IMAGE_MODEL = "seedream-5-0-260128";
     private static final long COOLDOWN_SECONDS = 60;
+    /** Thư mục con (trong thư mục ảnh tham chiếu của dự án) chứa ảnh AI chờ duyệt / ảnh cũ đã thay. */
+    public static final String REVIEW_DIR = "_cho-duyet";
+    public static final String ARCHIVE_DIR = "_cu";
+    private static final java.time.format.DateTimeFormatter STAMP = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
     private final Config config;
     private final ScriptProjectRepository projects;
@@ -109,8 +115,8 @@ public class ScriptImageRunner {
             if (active.containsKey(r.getId())) continue;
             if (r.getIdentityCode() != null) {
                 ScriptReference base = all.get(r.getIdentityCode());
-                boolean baseBusy = base != null && (base.getImageStatus() == ImageStatus.PENDING || base.getImageStatus() == ImageStatus.GENERATING);
-                if (baseBusy) continue; // chờ ảnh gốc để giữ khuôn mặt
+                boolean baseBusy = base != null && base.isAwaitingImage();
+                if (baseBusy) continue; // chờ ảnh gốc được tạo + duyệt để giữ khuôn mặt
             }
             active.put(r.getId(), projectId);
             if (references.moveImageIf(r.getId(), ImageStatus.PENDING, ImageStatus.GENERATING) == 0) {
@@ -153,22 +159,19 @@ public class ScriptImageRunner {
             try {
                 out = ImageGenerator.run(ArkClient.from(config), p, tmp, say);
                 SavedOutput first = out.get(0);
-                String name = first.file().getFileName().toString();
-                String ext = name.substring(name.lastIndexOf('.') + 1);
-                Path dir = fileLibrary.root().resolve("assets").resolve(project.getFolder());
-                Files.createDirectories(dir);
-                Path target = dir.resolve(r.getCode() + "." + ext);
-                for (int v = 2; Files.exists(target); v++) target = dir.resolve(r.getCode() + "_v" + v + "." + ext);
+                Path dir = refDir(project).resolve(REVIEW_DIR);
+                Path target = unique(dir, r.getCode() + "_" + java.time.LocalDateTime.now().format(STAMP), ext(first.file()));
                 Files.move(first.file(), target, StandardCopyOption.REPLACE_EXISTING);
                 GeneratedFile f = fileLibrary.record(new SavedOutput(target, first.sourceUrl()), p.model.id(), p.prompt, null, null);
+                Long oldPending = r.getPendingFileId();
                 update(refId, x -> {
-                    x.setFileId(f.getId());
-                    x.setImageStatus(ImageStatus.SUCCEEDED);
+                    x.setPendingFileId(f.getId());
+                    x.setImageStatus(ImageStatus.REVIEW);
                     x.setImageError(null);
-                    x.setBlockedReason(null);
                 });
-                say.accept("Đã tạo ảnh " + target.getFileName());
-                autoPush(f, refId);
+                if (oldPending != null && !oldPending.equals(f.getId())) deleteFileQuietly(oldPending);
+                say.accept("Đã tạo ảnh " + target.getFileName() + " – chờ duyệt");
+                if (project.isAutoApproveImages()) approve(refId);
             } finally {
                 deleteQuietly(tmp);
             }
@@ -178,6 +181,110 @@ public class ScriptImageRunner {
             active.remove(refId);
             lastLog.remove(refId);
         }
+    }
+
+    // ---------- duyệt ảnh ----------
+
+    /** Thư mục ảnh tham chiếu của dự án: output/assets/&lt;thư mục dự án&gt;. */
+    public Path refDir(ScriptProject p) {
+        return fileLibrary.root().resolve("assets").resolve(p.getFolder());
+    }
+
+    /**
+     * Duyệt ảnh chờ duyệt của mã: đổi tên thành &lt;thư mục ảnh tham chiếu&gt;/&lt;MÃ&gt;.&lt;đuôi&gt; (tạo thư mục nếu chưa có),
+     * ảnh cũ của mã (và file khác đang trùng tên) chuyển vào _cu/, gán ảnh cho mã rồi tự đẩy Virtual Portrait nếu bật.
+     */
+    public void approve(Long refId) throws IOException {
+        GeneratedFile approved;
+        synchronized (this) {
+            ScriptReference r = references.findById(refId).orElseThrow();
+            if (r.getImageStatus() != ImageStatus.REVIEW || r.getPendingFileId() == null) {
+                throw new IllegalStateException("Mã " + r.getCode() + " không có ảnh chờ duyệt");
+            }
+            ScriptProject project = projects.findById(r.getProjectId()).orElseThrow();
+            GeneratedFile f = fileLibrary.get(r.getPendingFileId());
+            if (!Files.isRegularFile(fileLibrary.pathOf(f))) {
+                update(refId, x -> {
+                    x.setPendingFileId(null);
+                    x.setImageStatus(ImageStatus.NONE);
+                    x.setImageError("Ảnh chờ duyệt không còn trên máy – bấm Tạo lại");
+                });
+                throw new IllegalStateException("Ảnh chờ duyệt của " + r.getCode() + " không còn trên máy – tạo lại ảnh");
+            }
+            Path dir = refDir(project);
+            Files.createDirectories(dir);
+            // Ảnh cũ của mã nằm ngay trong thư mục tham chiếu → cất vào _cu/
+            if (r.getFileId() != null && !r.getFileId().equals(f.getId())) {
+                GeneratedFile old = fileLibrary.existing(List.of(r.getFileId())).stream().findFirst().orElse(null);
+                if (old != null && Files.isRegularFile(fileLibrary.pathOf(old))
+                        && dir.toAbsolutePath().normalize().equals(fileLibrary.pathOf(old).getParent())) {
+                    archive(old, dir, r.getCode());
+                }
+            }
+            Path target = dir.resolve(r.getCode() + "." + ext(fileLibrary.pathOf(f)));
+            if (Files.exists(target)) { // file khác đang chiếm tên MÃ.đuôi
+                GeneratedFile holder = fileLibrary.findByPath(target).orElse(null);
+                if (holder != null) archive(holder, dir, r.getCode());
+                else Files.move(target, unique(dir.resolve(ARCHIVE_DIR), r.getCode() + "_" + java.time.LocalDateTime.now().format(STAMP), ext(target)));
+            }
+            approved = fileLibrary.move(f, target);
+            update(refId, x -> {
+                x.setFileId(f.getId());
+                x.setPendingFileId(null);
+                x.setImageStatus(ImageStatus.SUCCEEDED);
+                x.setImageError(null);
+                x.setBlockedReason(null);
+            });
+            log.info("Approved reference image {} -> {}", r.getCode(), target);
+        }
+        autoPush(approved, refId);
+    }
+
+    /** Bỏ ảnh chờ duyệt (xoá file); mã giữ ảnh cũ nếu có. */
+    public synchronized void reject(Long refId) {
+        ScriptReference r = references.findById(refId).orElseThrow();
+        if (r.getImageStatus() != ImageStatus.REVIEW) throw new IllegalStateException("Mã " + r.getCode() + " không có ảnh chờ duyệt");
+        Long pending = r.getPendingFileId();
+        update(refId, x -> {
+            x.setPendingFileId(null);
+            x.setImageStatus(ImageStatus.NONE);
+            x.setImageError(null);
+        });
+        if (pending != null) deleteFileQuietly(pending);
+    }
+
+    /** Xoá ảnh chờ duyệt của mã trước khi tạo lại (không lưu entity – người gọi lưu). */
+    public void discardPending(ScriptReference r) {
+        if (r.getPendingFileId() != null) {
+            deleteFileQuietly(r.getPendingFileId());
+            r.setPendingFileId(null);
+        }
+    }
+
+    private void archive(GeneratedFile f, Path dir, String code) throws IOException {
+        Path p = fileLibrary.pathOf(f);
+        fileLibrary.move(f, unique(dir.resolve(ARCHIVE_DIR), code + "_" + java.time.LocalDateTime.now().format(STAMP), ext(p)));
+    }
+
+    private void deleteFileQuietly(Long fileId) {
+        try {
+            fileLibrary.delete(fileId);
+        } catch (Exception e) {
+            log.warn("Cannot delete pending image {}: {}", fileId, e.getMessage());
+        }
+    }
+
+    private static String ext(Path p) {
+        String n = p.getFileName().toString();
+        int i = n.lastIndexOf('.');
+        return i < 0 ? "jpeg" : n.substring(i + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private static Path unique(Path dir, String base, String ext) throws IOException {
+        Files.createDirectories(dir);
+        Path t = dir.resolve(base + "." + ext);
+        for (int v = 2; Files.exists(t); v++) t = dir.resolve(base + "_" + v + "." + ext);
+        return t;
     }
 
     /** Ảnh của mã gốc: URL gốc còn hạn (đầu ra tin cậy của ModelArk) hoặc file trên máy. */
@@ -286,9 +393,9 @@ public class ScriptImageRunner {
         }
     }
 
-    /** Có ảnh đang chờ / đang tạo trong dự án (bộ chạy video không tạm dừng dự án khi còn ảnh đang tạo). */
+    /** Có ảnh đang chờ / đang tạo / chờ duyệt trong dự án (bộ chạy video không tạm dừng dự án khi còn ảnh này). */
     public boolean hasPendingImages(Long projectId) {
-        return references.countByProjectIdAndImageStatusIn(projectId, Set.of(ImageStatus.PENDING, ImageStatus.GENERATING)) > 0;
+        return references.countByProjectIdAndImageStatusIn(projectId, Set.of(ImageStatus.PENDING, ImageStatus.GENERATING, ImageStatus.REVIEW)) > 0;
     }
 
     @PreDestroy

@@ -76,9 +76,13 @@ Luồng giống Flow Batch Studio nhưng chạy ngay trong backend (không cần
    nếu sheet có cột chứa chữ `PROMPT` thì dùng prompt đó), tải lên, chọn từ thư viện, đặt tên file đúng mã rồi bấm “Tự ghép theo tên file”, hoặc **Nhập thư mục ảnh**
    (chọn / kéo thả cả thư mục, vd `Anh REF/NHAN VAT|BOI CANH|DAO CU`): app đoán mã cho từng ảnh theo mã trong tên file →
    mã rút gọn → thư mục + số thứ tự → tên nhân vật / mô tả (bỏ dấu), cho xem và sửa trước khi nhập; ảnh &gt; 8 MB / 4096px được thu nhỏ.
+   **Duyệt ảnh AI**: ảnh Seedream tạo xong vào mục *chờ duyệt* `output/assets/<dự án>/_cho-duyet/<mã>_<thời gian>.jpeg`, chưa dùng cho clip.
+   Bấm **Duyệt** (hoặc “Duyệt tất cả”) → đổi tên thành `output/assets/<dự án>/<mã>.jpeg` (tự tạo thư mục nếu chưa có), ảnh cũ của mã chuyển vào `_cu/`,
+   gán cho mã rồi mới tự đẩy Virtual Portrait; **Tạo lại** / **Bỏ ảnh mới** thì xoá ảnh chờ duyệt. Clip dùng mã đang tạo / chờ duyệt ảnh sẽ đứng chờ.
+   Nhân vật nhiều bộ đồ: các bộ sau chỉ tạo khi ảnh bộ đầu đã được duyệt. Bật “Tự duyệt ảnh AI” trong Cấu hình chạy để bỏ qua bước này.
    Nút “Tạo ảnh thiếu + chạy video” làm cả hai: clip nào đủ ảnh thì tự chạy video, dự án không tạm dừng khi ảnh còn đang tạo.
    Ảnh có asset Virtual Portrait Active được gửi dạng `asset://` (tránh Seedance chặn mặt người thật), nếu không thì URL gốc / base64.
-3. **Chạy**: cứ 3 giây bộ chạy (`ScriptRunner`) lấy clip chờ (ưu tiên clip làm lại, rồi theo thứ tự kịch bản), chỉ lấy clip đủ ảnh,
+3. **Chạy**: cứ 1,5 giây bộ chạy (`ScriptRunner`) lấy clip chờ (ưu tiên clip làm lại, rồi theo thứ tự kịch bản), chỉ lấy clip đủ ảnh,
    tối đa *N* clip song song mỗi dự án. Video lưu ở `output/videos/<thư mục dự án>/<mã>.mp4` (làm lại → `<mã>_v2.mp4`, không ghi đè).
    - 429 / quota: đưa clip lại hàng đợi, nghỉ 60s, không tính lần thử.
    - 401/403, model chưa mở, thiếu API key: tạm dừng dự án kèm lý do.
@@ -89,7 +93,7 @@ Luồng giống Flow Batch Studio nhưng chạy ngay trong backend (không cần
 
 API: `/api/v1/script-projects` (list, import, `{id}`, `start`, `pause`, `retry-failed`, `redo`, `clips?status=&q=`,
 `references`, `references/{code}`, `references/{code}/upload`, `references/auto-match`, `references/generate`,
-`references/stop-generate`, `references/{code}/prompt`, `references/match-files`) và `/api/v1/script-clips/{id}` (`PUT`, `run`, `cancel`).
+`references/stop-generate`, `references/{code}/prompt`, `references/match-files`, `references/{code}/approve`, `references/{code}/reject`, `references/approve-all`) và `/api/v1/script-clips/{id}` (`PUT`, `run`, `cancel`).
 
 ## REST API của backend
 

@@ -60,6 +60,13 @@ public class ScriptProject {
     @Column(length = 20)
     private String imageSize;
 
+    /** true = ảnh AI tạo xong được duyệt luôn (không qua bước chờ duyệt). null = false. */
+    private Boolean autoApproveImages;
+
+    public boolean isAutoApproveImages() {
+        return Boolean.TRUE.equals(autoApproveImages);
+    }
+
     /** Số clip gửi song song tối đa. */
     private int maxParallel = 3;
 

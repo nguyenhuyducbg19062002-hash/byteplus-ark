@@ -92,6 +92,7 @@ public class ScriptService {
         if (req.getGenerateAudio() != null) p.setGenerateAudio(req.getGenerateAudio());
         if (req.getMaxParallel() != null) p.setMaxParallel(req.getMaxParallel());
         if (req.getMaxAttempts() != null) p.setMaxAttempts(req.getMaxAttempts());
+        if (req.getAutoApproveImages() != null) p.setAutoApproveImages(req.getAutoApproveImages());
         if (req.getImageModel() != null) p.setImageModel(Models.image(req.getImageModel()).id());
         Models.ImageModel im = ScriptImageRunner.model(p);
         String size = req.getImageSize() != null ? req.getImageSize() : p.getImageSize();
@@ -307,7 +308,7 @@ public class ScriptService {
                         r.getIdentityCode(), r.getImageStatus(),
                         r.getImageStatus() == ScriptReference.ImageStatus.GENERATING && imageRunner.lastLog(r.getId()) != null
                                 ? imageRunner.lastLog(r.getId()) : r.getImageError(),
-                        runner.isBlocked(r) ? r.getBlockedReason() : null))
+                        runner.isBlocked(r) ? r.getBlockedReason() : null, fileDto(r.getPendingFileId())))
                 .toList();
     }
 
@@ -325,16 +326,51 @@ public class ScriptService {
         for (ScriptReference r : references.findByProjectIdOrderByKindAscCodeAsc(id)) {
             if (wanted != null ? !wanted.contains(r.getCode()) : !used.contains(r.getCode())) continue;
             if (r.getImageStatus() == ScriptReference.ImageStatus.GENERATING || r.getImageStatus() == ScriptReference.ImageStatus.PENDING) continue;
-            boolean has = r.getFileId() != null && runner.fileUsable(r.getFileId());
+            boolean reviewing = r.getImageStatus() == ScriptReference.ImageStatus.REVIEW;
+            boolean has = reviewing || (r.getFileId() != null && runner.fileUsable(r.getFileId()));
             if (has && !overwrite) continue;
+            if (reviewing) imageRunner.discardPending(r); // tạo lại → bỏ ảnh đang chờ duyệt
             r.setImageStatus(ScriptReference.ImageStatus.PENDING);
             r.setImageAttempt(0);
             r.setImageError(null);
             references.save(r);
             n++;
         }
-        if (n == 0) throw new IllegalStateException(wanted == null ? "Mọi mã đã có ảnh – chọn “Tạo lại” ở từng mã nếu muốn tạo ảnh mới" : "Không có mã nào cần tạo");
+        if (n == 0) throw new IllegalStateException(wanted == null ? "Mọi mã đã có ảnh hoặc đang chờ duyệt – chọn “Tạo lại” ở từng mã nếu muốn tạo ảnh mới" : "Không có mã nào cần tạo");
         return references(id);
+    }
+
+    /** Duyệt ảnh AI của mã: đổi tên thành MÃ.đuôi trong thư mục ảnh tham chiếu (tự tạo), gán cho mã. */
+    public ScriptReferenceDto approveReference(Long id, String code) throws IOException {
+        imageRunner.approve(reference(id, code).getId());
+        return referenceDto(id, code);
+    }
+
+    /** Bỏ ảnh AI chờ duyệt của mã (xoá file), mã giữ ảnh cũ nếu có. */
+    public ScriptReferenceDto rejectReference(Long id, String code) {
+        imageRunner.reject(reference(id, code).getId());
+        return referenceDto(id, code);
+    }
+
+    /** Duyệt mọi ảnh đang chờ duyệt của dự án. Trả về danh sách mã lỗi (nếu có) qua log, vẫn duyệt các mã khác. */
+    public List<ScriptReferenceDto> approveAll(Long id) {
+        project(id);
+        List<String> failed = new ArrayList<>();
+        for (ScriptReference r : references.findByProjectIdOrderByKindAscCodeAsc(id)) {
+            if (r.getImageStatus() != ScriptReference.ImageStatus.REVIEW) continue;
+            try {
+                imageRunner.approve(r.getId());
+            } catch (Exception e) {
+                log.warn("Approve {} failed: {}", r.getCode(), e.getMessage());
+                failed.add(r.getCode());
+            }
+        }
+        if (!failed.isEmpty()) throw new IllegalStateException("Không duyệt được: " + String.join(", ", failed) + " – xem lỗi ở từng mã");
+        return references(id);
+    }
+
+    private ScriptReferenceDto referenceDto(Long id, String code) {
+        return references(id).stream().filter(x -> x.code().equals(code)).findFirst().orElseThrow();
     }
 
     /** Gợi ý ghép file trong thư mục ảnh người dùng chọn với mã tham chiếu (chưa tải nội dung lên). */
@@ -373,6 +409,10 @@ public class ScriptService {
             GeneratedFile f = fileLibrary.get(fileId);
             if (f.getKind() != MediaKind.IMAGE) throw new IllegalArgumentException(f.getName() + " không phải ảnh");
         }
+        if (r.getImageStatus() == ScriptReference.ImageStatus.REVIEW) { // gán ảnh tay → bỏ ảnh AI đang chờ duyệt
+            imageRunner.discardPending(r);
+            r.setImageStatus(ScriptReference.ImageStatus.NONE);
+        }
         r.setFileId(fileId);
         r.setBlockedReason(null);
         references.save(r);
@@ -404,7 +444,7 @@ public class ScriptService {
         List<GeneratedFile> images = files.findByKindOrderByCreatedAtDesc(MediaKind.IMAGE);
         int n = 0;
         for (ScriptReference r : references.findByProjectIdOrderByKindAscCodeAsc(id)) {
-            if (r.getFileId() != null && runner.fileUsable(r.getFileId())) continue;
+            if (r.isAwaitingImage() || (r.getFileId() != null && runner.fileUsable(r.getFileId()))) continue;
             String code = r.getCode();
             GeneratedFile hit = images.stream().filter(f -> nameMatchesCode(f.getName(), code))
                     .filter(f -> Files.isRegularFile(fileLibrary.pathOf(f))).findFirst().orElse(null);
@@ -434,6 +474,7 @@ public class ScriptService {
         Path dir = fileLibrary.root().resolve("assets").resolve(p.getFolder());
         int n = 0;
         for (ScriptReference r : references.findByProjectIdOrderByKindAscCodeAsc(id)) {
+            if (r.isAwaitingImage()) continue; // đang tạo / chờ duyệt ảnh AI
             if (r.getFileId() != null && files.findById(r.getFileId())
                     .map(f -> f.getAssetId() != null && "Active".equals(f.getAssetStatus())).orElse(false)) continue;
             Map<String, Object> hit = AssetLibraryService.findAssetFor(assets, r.getCode());
@@ -474,8 +515,9 @@ public class ScriptService {
             if (c.getWarnings() != null) warn++;
         }
         Set<String> usedCodes = all.stream().flatMap(c -> c.refList().stream()).collect(Collectors.toSet());
+        // Thiếu ảnh = chưa có ảnh dùng được và cũng không đang tạo / chờ duyệt
         int missing = (int) refs.values().stream()
-                .filter(r -> usedCodes.contains(r.getCode()) && check.noFile(r.getCode())).count();
+                .filter(r -> usedCodes.contains(r.getCode()) && check.noFile(r.getCode()) && !r.isAwaitingImage()).count();
         return ScriptProjectDto.builder().id(p.getId()).name(p.getName()).sourceFile(p.getSourceFile()).folder(p.getFolder())
                 .model(p.getModel()).resolution(p.getResolution()).ratio(p.getRatio()).generateAudio(p.isGenerateAudio())
                 .maxParallel(p.getMaxParallel()).maxAttempts(p.getMaxAttempts()).status(p.getStatus())
@@ -484,6 +526,8 @@ public class ScriptService {
                 .imagesPending((int) refs.values().stream().filter(r -> r.getImageStatus() == ScriptReference.ImageStatus.PENDING
                         || r.getImageStatus() == ScriptReference.ImageStatus.GENERATING).count())
                 .imagesFailed((int) refs.values().stream().filter(r -> r.getImageStatus() == ScriptReference.ImageStatus.FAILED).count())
+                .imagesReview((int) refs.values().stream().filter(r -> r.getImageStatus() == ScriptReference.ImageStatus.REVIEW).count())
+                .autoApproveImages(p.isAutoApproveImages())
                 .pausedReason(p.getPausedReason()).cooldownUntil(p.getCooldownUntil()).createdAt(p.getCreatedAt())
                 .counts(counts).refsTotal(refs.size()).refsMissing(missing).blockedClips(blocked).warningClips(warn)
                 .build();

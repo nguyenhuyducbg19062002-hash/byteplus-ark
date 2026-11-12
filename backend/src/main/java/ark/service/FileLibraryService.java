@@ -126,6 +126,21 @@ public class FileLibraryService {
         return new PageResponse<>(p.getContent().stream().map(this::toDto).toList(), p.getTotalElements(), page, size);
     }
 
+    /** Chuyển / đổi tên file trên đĩa và cập nhật đường dẫn trong DB (giữ nguyên URL gốc, asset ID…). */
+    public GeneratedFile move(GeneratedFile f, Path target) throws IOException {
+        Path from = pathOf(f);
+        Files.createDirectories(target.getParent());
+        if (!from.toAbsolutePath().normalize().equals(target.toAbsolutePath().normalize())) {
+            Files.move(from, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+        f.setPath(relative(target));
+        return repository.save(f);
+    }
+
+    public java.util.Optional<GeneratedFile> findByPath(Path p) {
+        return repository.findByPath(relative(p));
+    }
+
     public void delete(Long id) throws IOException {
         GeneratedFile f = get(id);
         Files.deleteIfExists(pathOf(f));

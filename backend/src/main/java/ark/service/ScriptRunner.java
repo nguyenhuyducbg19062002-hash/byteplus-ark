@@ -151,8 +151,8 @@ public class ScriptRunner {
         ScriptProject fresh = projects.findById(p.getId()).orElse(null);
         if (fresh == null || fresh.getStatus() != ScriptProject.Status.RUNNING) return;
         if (blocked > 0 && references.countByProjectIdAndImageStatusIn(p.getId(),
-                Set.of(ScriptReference.ImageStatus.PENDING, ScriptReference.ImageStatus.GENERATING)) > 0) {
-            return; // ảnh tham chiếu đang được tạo – clip sẽ chạy khi ảnh xong
+                Set.of(ScriptReference.ImageStatus.PENDING, ScriptReference.ImageStatus.GENERATING, ScriptReference.ImageStatus.REVIEW)) > 0) {
+            return; // ảnh tham chiếu đang được tạo / chờ duyệt – clip sẽ chạy khi ảnh được duyệt
         }
         if (blocked > 0) {
             fresh.setStatus(ScriptProject.Status.PAUSED);
@@ -211,7 +211,8 @@ public class ScriptRunner {
         public boolean noFile(String code) {
             return noFile.computeIfAbsent(code, k -> {
                 ScriptReference r = refs.get(k);
-                return r == null || r.getFileId() == null || !fileUsable(r.getFileId());
+                // Đang tạo / chờ duyệt ảnh mới → chưa dùng ảnh cũ
+                return r == null || r.getFileId() == null || r.isAwaitingImage() || !fileUsable(r.getFileId());
             });
         }
 

@@ -168,6 +168,23 @@ public class ScriptProjectController {
         return service.generateReferences(id, req == null ? null : req.getCodes(), req != null && req.isOverwrite());
     }
 
+    /** Duyệt ảnh AI chờ duyệt: đổi tên thành MÃ.đuôi trong output/assets/&lt;dự án&gt;/ (tự tạo thư mục), gán cho mã. */
+    @PostMapping("/script-projects/{id}/references/{code}/approve")
+    public ScriptReferenceDto approveReference(@PathVariable Long id, @PathVariable String code) throws IOException {
+        return service.approveReference(id, code);
+    }
+
+    /** Bỏ ảnh AI chờ duyệt (xoá file). */
+    @PostMapping("/script-projects/{id}/references/{code}/reject")
+    public ScriptReferenceDto rejectReference(@PathVariable Long id, @PathVariable String code) {
+        return service.rejectReference(id, code);
+    }
+
+    @PostMapping("/script-projects/{id}/references/approve-all")
+    public List<ScriptReferenceDto> approveAll(@PathVariable Long id) {
+        return service.approveAll(id);
+    }
+
     @PostMapping("/script-projects/{id}/references/stop-generate")
     public List<ScriptReferenceDto> stopGenerating(@PathVariable Long id) {
         service.project(id);
