@@ -1,0 +1,12 @@
+output/
+data/
+backend/target/
+frontend/node_modules/
+frontend/dist/
+desktop-legacy/build/
+desktop-legacy/dist/
+*.part
+.idea/
+*.class
+*.jar
+!backend/.mvn/wrapper/*.jar

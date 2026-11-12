@@ -1,0 +1,53 @@
+/* Tinh chỉnh Element Plus cho hợp giao diện: bo góc mềm, bảng có hover rõ, pagination gọn */
+:root {
+  --el-border-radius-base: 8px;
+  --el-color-primary: #4f46e5;
+  --el-color-primary-light-3: #818cf8;
+  --el-color-primary-light-5: #a5b4fc;
+  --el-color-primary-light-7: #c7d2fe;
+  --el-color-primary-light-8: #e0e7ff;
+  --el-color-primary-light-9: #eef2ff;
+  --el-color-primary-dark-2: #4338ca;
+}
+
+html.dark {
+  --el-bg-color: #27272a;
+  --el-bg-color-overlay: #27272a;
+  --el-fill-color-blank: #27272a;
+  --el-color-primary: #818cf8;
+  --el-color-primary-light-9: #312e81;
+}
+
+.el-table {
+  --el-table-row-hover-bg-color: #eef2ff;
+  --el-table-header-bg-color: #f8fafc;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+html.dark .el-table {
+  --el-table-row-hover-bg-color: rgba(129, 140, 248, 0.12);
+  --el-table-header-bg-color: #3f3f46;
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.el-table .el-table__row {
+  transition: background-color 0.15s ease;
+}
+
+.el-dialog {
+  border-radius: 16px;
+}
+
+.el-button + .el-button {
+  margin-left: 0;
+}
