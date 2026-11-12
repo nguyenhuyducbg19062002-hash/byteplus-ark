@@ -46,7 +46,7 @@ const refs = useAsync(() => api.get(`/script-projects/${currentId.value}/referen
 const importing = ref(false)
 const importResult = ref(null)
 const busy = ref('')
-const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', autoApproveImages: false, refSaveMode: 'PROJECT', refSaveDir: '' })
+const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', promptModel: '', autoApproveImages: false, refSaveMode: 'PROJECT', refSaveDir: '' })
 const settingsErrors = ref({})
 const redo = reactive({ codes: '', note: '' })
 const expanded = ref([])
@@ -155,7 +155,7 @@ watch(filter, () => {
 function pick(p) {
   return {
     model: p.model, resolution: p.resolution, ratio: p.ratio, generateAudio: p.generateAudio, maxParallel: p.maxParallel,
-    maxAttempts: p.maxAttempts, imageModel: p.imageModel, imageSize: p.imageSize, autoApproveImages: p.autoApproveImages,
+    maxAttempts: p.maxAttempts, imageModel: p.imageModel, imageSize: p.imageSize, promptModel: p.promptModel, autoApproveImages: p.autoApproveImages,
     refSaveMode: p.refSaveMode || 'PROJECT', refSaveDir: p.refSaveDir || ''
   }
 }
@@ -317,6 +317,68 @@ async function runAll() {
 function openPrompt(r) {
   promptFor.value = r
   promptDraft.value = r.imagePrompt || ''
+}
+/** Trong hộp thoại Prompt: model Language viết bản mới vào ô soạn (chưa lưu – xem rồi bấm Lưu). */
+async function aiDraft() {
+  const r = promptFor.value
+  busy.value = 'aiDraft'
+  try {
+    const res = await api.post(`/script-projects/${currentId.value}/references/${encodeURIComponent(r.code)}/ai-prompt`, null, { timeout: 200000 })
+    promptDraft.value = res.prompt
+    ElMessage.success('AI đã viết prompt mới – xem lại rồi bấm Lưu')
+  } finally {
+    busy.value = ''
+  }
+}
+/** Mã đang cần ảnh (clip dùng, chưa có ảnh, không đang tạo / chờ duyệt) và prompt chưa sửa tay. */
+const aiTargets = computed(() =>
+  (refs.data.value || []).filter((r) => r.usedBy > 0 && !r.file && !r.promptEdited && !['PENDING', 'GENERATING', 'REVIEW'].includes(r.imageStatus))
+)
+const aiProgress = ref('')
+/** Model Language viết lại prompt cho mọi mã còn thiếu ảnh (3 mã song song), lưu luôn. */
+async function aiWriteAll() {
+  const list = aiTargets.value
+  if (!list.length) return
+  const name = models.text.find((m) => m.id === project.value?.promptModel)?.name || project.value?.promptModel
+  await ElMessageBox.confirm(
+    `${name} sẽ viết lại prompt ảnh cho ${list.length} mã còn thiếu ảnh (bỏ qua mã đã sửa prompt tay). Mỗi mã tốn một ít token chat. Tiếp tục?`,
+    'AI viết prompt ảnh',
+    { type: 'info' }
+  )
+  busy.value = 'aiAll'
+  let done = 0
+  const failed = []
+  const queue = [...list]
+  aiProgress.value = `0/${list.length}`
+  const worker = async () => {
+    while (queue.length) {
+      const r = queue.shift()
+      try {
+        await api.post(`/script-projects/${currentId.value}/references/${encodeURIComponent(r.code)}/ai-prompt`, null, {
+          params: { save: true },
+          timeout: 200000,
+          silent: true
+        })
+      } catch (e) {
+        failed.push(`${r.code}: ${e.message || e}`)
+        if (/chưa bật model|ModelNotOpen|API key/i.test(String(e.message))) queue.length = 0 // lỗi tài khoản → dừng hết
+      }
+      done++
+      aiProgress.value = `${done}/${list.length}`
+    }
+  }
+  try {
+    await Promise.all([worker(), worker(), worker()])
+  } finally {
+    busy.value = ''
+    aiProgress.value = ''
+    await refs.run()
+  }
+  if (failed.length) {
+    ElMessageBox.alert(failed.slice(0, 5).join('\n\n'), `Lỗi ${failed.length} mã`, { type: 'error' })
+  } else {
+    ElMessage.success(`Đã viết prompt cho ${list.length} mã – bấm “Tạo bằng AI các ảnh còn thiếu” để tạo ảnh`)
+  }
 }
 async function savePrompt(generate) {
   const r = promptFor.value
@@ -520,6 +582,13 @@ function downloadZip(what) {
                     <el-option v-for="x in imageModel?.sizes || []" :key="x" :label="x" :value="x" />
                   </el-select>
                 </div>
+                <div class="sm:col-span-2">
+                  <label class="field-label">Model viết prompt ảnh (Language)</label>
+                  <el-select v-model="settings.promptModel" class="w-full">
+                    <el-option v-for="m in models.text" :key="m.id" :label="m.name" :value="m.id" />
+                  </el-select>
+                  <p class="hint mt-1">Dola-Seed chỉ viết chữ: đọc mô tả trong Excel → viết prompt. Ảnh vẫn do model tạo ảnh bên trái vẽ.</p>
+                </div>
               </div>
               <div class="mt-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
                 <div class="sm:col-span-2">
@@ -670,6 +739,9 @@ function downloadZip(what) {
               <el-button type="primary" :disabled="!project.refsMissing || project.imagesPending > 0" :loading="busy === 'gen'" @click="generateRefs()">
                 <el-icon><MagicStick /></el-icon>&nbsp;Tạo bằng AI các ảnh còn thiếu ({{ project.refsMissing }})
               </el-button>
+              <el-button v-if="aiTargets.length || busy === 'aiAll'" type="primary" plain :loading="busy === 'aiAll'" @click="aiWriteAll">
+                <el-icon><EditPen /></el-icon>&nbsp;{{ busy === 'aiAll' ? `AI đang viết prompt ${aiProgress}` : `AI viết prompt ảnh (${aiTargets.length})` }}
+              </el-button>
               <el-button v-if="project.imagesReview" type="success" :loading="busy === 'approveAll'" @click="approveAll">
                 <el-icon><Select /></el-icon>&nbsp;Duyệt tất cả ({{ project.imagesReview }})
               </el-button>
@@ -757,6 +829,7 @@ function downloadZip(what) {
       </p>
       <el-input v-model="promptDraft" type="textarea" :autosize="{ minRows: 8, maxRows: 20 }" maxlength="6000" show-word-limit />
       <template #footer>
+        <el-button class="float-left" :loading="busy === 'aiDraft'" @click="aiDraft"><el-icon><EditPen /></el-icon>&nbsp;AI viết lại (Language)</el-button>
         <el-button @click="promptFor = null">Huỷ</el-button>
         <el-button :loading="busy === 'prompt'" :disabled="!promptDraft.trim()" @click="savePrompt(false)">Lưu</el-button>
         <el-button type="primary" :loading="busy === 'prompt'" :disabled="!promptDraft.trim()" @click="savePrompt(true)">Lưu &amp; tạo ảnh</el-button>

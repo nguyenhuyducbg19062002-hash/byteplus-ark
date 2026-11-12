@@ -60,6 +60,7 @@ public class ScriptService {
     private final ScriptRunner runner;
     private final ScriptImageRunner imageRunner;
     private final AssetLibraryService assetLibrary;
+    private final ScriptPromptWriter promptWriter;
 
     // ---------- dự án ----------
 
@@ -103,6 +104,7 @@ public class ScriptService {
             throw new IllegalArgumentException("Chọn “Thư mục riêng” thì phải nhập đường dẫn thư mục");
         }
         if (req.getImageModel() != null) p.setImageModel(Models.image(req.getImageModel()).id());
+        if (req.getPromptModel() != null) p.setPromptModel(Models.text(req.getPromptModel()).id());
         Models.ImageModel im = ScriptImageRunner.model(p);
         String size = req.getImageSize() != null ? req.getImageSize() : p.getImageSize();
         if (size == null || !im.sizes().contains(size)) {
@@ -401,6 +403,26 @@ public class ScriptService {
         return references(id);
     }
 
+    /**
+     * Model ngôn ngữ (Dola-Seed) viết prompt ảnh cho mã từ mô tả trong kịch bản.
+     * save = true: lưu luôn (đánh dấu đã sửa – nhập lại Excel không ghi đè); false: chỉ trả về để người dùng xem / sửa.
+     */
+    public Map<String, Object> aiPrompt(Long id, String code, boolean save) throws IOException, InterruptedException {
+        if (config.apiKey().isEmpty()) throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước");
+        ScriptProject p = project(id);
+        String prompt = promptWriter.write(p, reference(id, code));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("prompt", prompt);
+        if (save) {
+            ScriptReference r = reference(id, code); // đọc lại: trong lúc chờ model có thể đã đổi
+            r.setImagePrompt(prompt);
+            r.setPromptEdited(true);
+            references.save(r);
+            out.put("reference", referenceDto(id, code));
+        }
+        return out;
+    }
+
     @Transactional
     public ScriptReferenceDto updateReferencePrompt(Long id, String code, String prompt, boolean generate) {
         ScriptReference r = reference(id, code);
@@ -532,6 +554,7 @@ public class ScriptService {
                 .maxParallel(p.getMaxParallel()).maxAttempts(p.getMaxAttempts()).status(p.getStatus())
                 .imageModel(ScriptImageRunner.model(p).id())
                 .imageSize(p.getImageSize() == null ? ScriptImageRunner.model(p).defaultSize() : p.getImageSize())
+                .promptModel(p.getPromptModel())
                 .imagesPending((int) refs.values().stream().filter(r -> r.getImageStatus() == ScriptReference.ImageStatus.PENDING
                         || r.getImageStatus() == ScriptReference.ImageStatus.GENERATING).count())
                 .imagesFailed((int) refs.values().stream().filter(r -> r.getImageStatus() == ScriptReference.ImageStatus.FAILED).count())

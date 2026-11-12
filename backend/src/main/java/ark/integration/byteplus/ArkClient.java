@@ -49,6 +49,13 @@ public final class ArkClient {
         return send("POST", "/images/generations", body, Duration.ofMinutes(10));
     }
 
+    // ---------- Chat (model ngôn ngữ Dola-Seed) ----------
+
+    /** POST /chat/completions (đồng bộ). */
+    public Map<String, Object> chat(Map<String, Object> body) throws IOException, InterruptedException {
+        return send("POST", "/chat/completions", body, Duration.ofMinutes(3));
+    }
+
     // ---------- Video generation (Seedance) ----------
 
     /** POST /contents/generations/tasks — returns {"id": "..."}. */

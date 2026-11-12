@@ -7,6 +7,7 @@ export const useModelsStore = defineStore('models', {
   getters: {
     image: (s) => s.data?.image || [],
     video: (s) => s.data?.video || [],
+    text: (s) => s.data?.text || [],
     videoModes: (s) => s.data?.videoModes || [],
     ratios: (s) => s.data?.ratios || []
   },

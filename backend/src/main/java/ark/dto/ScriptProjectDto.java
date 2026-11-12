@@ -10,7 +10,7 @@ import lombok.Builder;
 @Builder
 public record ScriptProjectDto(Long id, String name, String sourceFile, String folder, String model, String resolution,
                                String ratio, boolean generateAudio, int maxParallel, int maxAttempts,
-                               String imageModel, String imageSize, int imagesPending, int imagesFailed,
+                               String imageModel, String imageSize, String promptModel, int imagesPending, int imagesFailed,
                                int imagesReview, boolean autoApproveImages, String refSaveMode, String refSaveDir,
                                ScriptProject.Status status, String pausedReason, Instant cooldownUntil, Instant createdAt,
                                Map<String, Long> counts, int refsTotal, int refsMissing, int blockedClips, int warningClips) {}

@@ -28,6 +28,9 @@ public class ScriptProjectUpdateRequest {
     @Pattern(regexp = "^[0-9A-Za-z.x]{1,20}$", message = "Kích thước ảnh không hợp lệ")
     private String imageSize;
 
+    /** Model ngôn ngữ viết prompt ảnh. */
+    private String promptModel;
+
     /** true = ảnh AI tạo xong được duyệt luôn, không qua mục chờ duyệt. */
     private Boolean autoApproveImages;
 

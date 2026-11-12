@@ -82,6 +82,25 @@ public final class Models {
             new ImageModel("seedream-4-5-251128", "Seedream 4.5", List.of("2K", "4K", "2048x2048"), "2K", true, 14, false),
             new ImageModel("seedream-4-0-250828", "Seedream 4.0", List.of("1K", "2K", "4K", "2048x2048"), "2K", true, 14, false));
 
+    /** Model ngôn ngữ (tab Language trên console) – chỉ trả về chữ, dùng để viết prompt ảnh. */
+    public record TextModel(String id, String name) {
+        @Override
+        public String toString() { return name + "  (" + id + ")"; }
+    }
+
+    public static final String DEFAULT_TEXT_MODEL = "seed-2-0-lite-260428";
+
+    public static final List<TextModel> TEXT = List.of(
+            new TextModel("seed-2-0-lite-260428", "Dola-Seed 2.0 lite"),
+            new TextModel("seed-2-0-mini-260428", "Dola-Seed 2.0 mini"),
+            new TextModel("seed-2-0-pro-260328", "Dola-Seed 2.0 pro"),
+            new TextModel("dola-seed-2-1-turbo-260628", "Dola-Seed 2.1 turbo"));
+
+    public static TextModel text(String id) {
+        for (TextModel m : TEXT) if (m.id().equals(id)) return m;
+        throw new IllegalArgumentException("Model ngôn ngữ không rõ: " + id);
+    }
+
     public static VideoModel video(String id) {
         for (VideoModel m : VIDEO) if (m.id().equals(id)) return m;
         throw new IllegalArgumentException("Model video không rõ: " + id);

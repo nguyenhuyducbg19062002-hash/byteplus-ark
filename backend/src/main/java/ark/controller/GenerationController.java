@@ -35,6 +35,7 @@ public class GenerationController {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("video", Models.VIDEO);
         m.put("image", Models.IMAGE);
+        m.put("text", Models.TEXT);
         m.put("videoModes", modes);
         m.put("ratios", Models.RATIOS);
         return m;

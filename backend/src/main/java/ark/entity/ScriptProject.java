@@ -60,6 +60,14 @@ public class ScriptProject {
     @Column(length = 20)
     private String imageSize;
 
+    /** Model ngôn ngữ (Dola-Seed) viết prompt ảnh tham chiếu. null = mặc định. */
+    @Column(length = 80)
+    private String promptModel;
+
+    public String getPromptModel() {
+        return promptModel == null ? ark.integration.byteplus.Models.DEFAULT_TEXT_MODEL : promptModel;
+    }
+
     /** true = ảnh AI tạo xong được duyệt luôn (không qua bước chờ duyệt). null = false. */
     private Boolean autoApproveImages;
 

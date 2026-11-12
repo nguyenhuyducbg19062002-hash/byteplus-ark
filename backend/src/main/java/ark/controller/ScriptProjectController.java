@@ -191,6 +191,14 @@ public class ScriptProjectController {
         return service.stopGenerating(id);
     }
 
+    /** Model ngôn ngữ Dola-Seed viết prompt ảnh cho mã. save=false: chỉ trả về {prompt}; save=true: lưu luôn, trả kèm {reference}. */
+    @PostMapping("/script-projects/{id}/references/{code}/ai-prompt")
+    public java.util.Map<String, Object> aiPrompt(@PathVariable Long id, @PathVariable String code,
+                                                  @RequestParam(defaultValue = "false") boolean save)
+            throws IOException, InterruptedException {
+        return service.aiPrompt(id, code, save);
+    }
+
     @PutMapping("/script-projects/{id}/references/{code}/prompt")
     public ScriptReferenceDto updateReferencePrompt(@PathVariable Long id, @PathVariable String code,
                                                     @Valid @RequestBody ScriptReferencePromptRequest req) {
