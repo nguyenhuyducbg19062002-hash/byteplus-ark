@@ -80,6 +80,11 @@ public class AssetLibraryService {
         return assetCache;
     }
 
+    /** Bỏ các asset đã bị xoá trên BytePlus khỏi cache (để không ghép lại đúng asset đó theo tên). */
+    public synchronized void dropFromCache(java.util.Collection<String> assetIds) {
+        assetCache = assetCache.stream().filter(a -> !assetIds.contains(String.valueOf(a.get("Id")))).toList();
+    }
+
     /** Chỉ đọc cache (không gọi mạng) – dùng ở chỗ chạy thường xuyên như bộ điều phối clip. */
     public Map<String, Object> cachedAssetFor(String code) {
         if (System.currentTimeMillis() - assetCacheAt > 60_000 && hasKeys() && refreshing.compareAndSet(false, true)) {

@@ -315,6 +315,7 @@ public class ScriptRunner {
             say.accept("Đang tải video…");
             client.download(url, target);
             GeneratedFile f = fileLibrary.record(new SavedOutput(target, url), model.id(), clip.getPrompt(), taskId, null);
+            assetHeals.remove(clipId);
             updateClip(clipId, c -> {
                 c.setStatus(ScriptClip.Status.SUCCEEDED);
                 c.setFileId(f.getId());
@@ -492,6 +493,14 @@ public class ScriptRunner {
                 transient_(clipId, project, msg, false);
                 return;
             }
+            // asset:// đã bị xoá trên BytePlus (xoá group / dọn thư viện trên console) nhưng DB vẫn ghi Active
+            List<String> gone = missingAssets(ae.getMessage());
+            if (!gone.isEmpty() && assetHeals.merge(clipId, 1, Integer::sum) <= MAX_ASSET_HEALS) {
+                forgetAssets(gone);
+                requeue(clipId, "Asset Virtual Portrait " + String.join(", ", gone)
+                        + " đã bị xoá trên BytePlus – app bỏ asset cũ, đẩy lại ảnh trên máy rồi gửi lại clip");
+                return;
+            }
             if (code.contains("privacy") || code.contains("realperson")) {
                 List<String> codes = blockRefs(clipId, ae.getMessage());
                 if (!codes.isEmpty()) {
@@ -513,6 +522,38 @@ public class ScriptRunner {
         }
         // Lỗi mạng / IO khác: thử lại, giữ taskId để chỉ theo dõi tiếp
         transient_(clipId, project, msg, false);
+    }
+
+    private static final java.util.regex.Pattern MISSING_ASSET =
+            java.util.regex.Pattern.compile("asset (asset-[0-9A-Za-z-]+) is not found", java.util.regex.Pattern.CASE_INSENSITIVE);
+    /** Mỗi clip tự sửa asset mất tối đa vài lần (tránh lặp mãi nếu asset mới cũng bị từ chối). */
+    private static final int MAX_ASSET_HEALS = 3;
+    private final Map<Long, Integer> assetHeals = new ConcurrentHashMap<>();
+
+    /** "The specified asset asset-…-mh7gc is not found" → các asset ID BytePlus không còn. */
+    static List<String> missingAssets(String message) {
+        List<String> out = new ArrayList<>();
+        if (message == null) return out;
+        java.util.regex.Matcher m = MISSING_ASSET.matcher(message);
+        while (m.find()) if (!out.contains(m.group(1))) out.add(m.group(1));
+        return out;
+    }
+
+    /**
+     * Quên asset đã bị xoá: file ảnh giữ nguyên trên máy nhưng không còn asset → lần gửi sau app ghép asset khác cùng tên
+     * (nếu có) hoặc đẩy lại ảnh lên Virtual Portrait để có asset mới, rồi mới gửi asset://.
+     */
+    private synchronized void forgetAssets(List<String> assetIds) {
+        assetLibrary.dropFromCache(assetIds);
+        for (String id : assetIds) {
+            for (GeneratedFile f : fileLibrary.byAssetId(id)) {
+                f.setAssetId(null);
+                f.setAssetStatus(null);
+                f.setAssetError("Asset " + id + " đã bị xoá trên BytePlus");
+                fileLibrary.save(f);
+                log.info("Asset {} no longer exists on BytePlus – cleared from file {}", id, f.getName());
+            }
+        }
     }
 
     private static final java.util.regex.Pattern CONTENT_IDX = java.util.regex.Pattern.compile("content\\[(\\d+)]");
@@ -579,6 +620,7 @@ public class ScriptRunner {
     }
 
     private void finish(Long clipId, ScriptClip.Status status, String error, boolean clearTask) {
+        assetHeals.remove(clipId); // chạy lại bằng tay → được tự sửa asset mất từ đầu
         updateClip(clipId, c -> {
             c.setStatus(status);
             c.setError(error);

@@ -39,14 +39,22 @@ public final class DesktopLauncher {
         return "http://127.0.0.1:" + port() + "/";
     }
 
+    /** Giữ khoá suốt đời tiến trình: chỉ một Ark Studio chạy (bấm đúp icon 2 lần không mở 2 bản). */
+    private static java.nio.channels.FileChannel lockChannel;
+    private static java.nio.channels.FileLock instanceLock;
+
     public static void launch(String[] args) {
         System.setProperty("ark.desktop", "true");
-        // Đã có một Ark Studio đang chạy → chỉ mở thêm cửa sổ rồi thoát
-        if (isRunning()) {
+        Path home = home();
+        if (!acquireInstanceLock(home)) {
+            // Đã có Ark Studio: chạy xong rồi → mở thêm cửa sổ; đang khởi động → nó sẽ tự mở cửa sổ, bản này chỉ thoát
+            if (isRunning()) openWindow();
+            System.exit(0);
+        }
+        if (isRunning()) { // bản cũ (trước khi có khoá) đang chạy
             openWindow();
             System.exit(0);
         }
-        Path home = home();
         if (System.getProperty("app.data-dir") == null) {
             System.setProperty("app.data-dir", home.resolve("data").toString().replace('\\', '/'));
         }
@@ -72,6 +80,21 @@ public final class DesktopLauncher {
             JOptionPane.showMessageDialog(null, "Không khởi động được Ark Studio:\n" + why
                     + "\n\nXem log: " + home.resolve("logs").resolve("ark-studio.log"), "Ark Studio", JOptionPane.ERROR_MESSAGE);
             System.exit(1);
+        }
+    }
+
+    /** @return false nếu một Ark Studio khác đang giữ khoá (đang chạy hoặc đang khởi động) */
+    static boolean acquireInstanceLock(Path home) {
+        try {
+            Files.createDirectories(home);
+            lockChannel = java.nio.channels.FileChannel.open(home.resolve("app.lock"),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+            instanceLock = lockChannel.tryLock();
+            return instanceLock != null;
+        } catch (java.nio.channels.OverlappingFileLockException e) {
+            return false;
+        } catch (IOException e) {
+            return true; // không tạo được file khoá → vẫn cho chạy (cổng 18080 vẫn chặn bản thứ hai)
         }
     }
 
