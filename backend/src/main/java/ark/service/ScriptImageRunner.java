@@ -44,7 +44,8 @@ import lombok.extern.slf4j.Slf4j;
  * <li>Nhân vật nhiều bộ trang phục: ảnh bộ đầu (identityCode) được tạo trước và dùng làm tham chiếu khuôn mặt cho các bộ sau.</li>
  * <li>Ảnh xong được lưu vào thư mục chờ duyệt output/assets/&lt;dự án&gt;/_cho-duyet/&lt;mã&gt;_&lt;thời gian&gt;.jpeg (REVIEW),
  * chưa dùng cho clip. Khi duyệt ({@link #approve}): đổi tên thành output/assets/&lt;dự án&gt;/&lt;mã&gt;.jpeg (tự tạo thư mục),
- * ảnh cũ chuyển vào _cu/, gán cho mã rồi mới tự đẩy Virtual Portrait. Dự án bật "tự duyệt" thì duyệt ngay.</li>
+ * ảnh cũ chuyển vào _cu/ và gán cho mã. Không đẩy Virtual Portrait ở đây – bộ chạy video tự đẩy khi gửi clip.
+ * Dự án bật "tự duyệt" thì duyệt ngay.</li>
  * <li>429: chờ 60s; 5xx / mạng: thử lại tới maxAttempts; nội dung bị từ chối / sai tham số: FAILED.</li>
  * </ul>
  */
@@ -63,7 +64,6 @@ public class ScriptImageRunner {
     private final ScriptProjectRepository projects;
     private final ScriptReferenceRepository references;
     private final FileLibraryService fileLibrary;
-    private final AssetLibraryService assetLibrary;
     private final ScriptRunner videoRunner;
 
     private final ExecutorService pool = Executors.newCachedThreadPool(); // giới hạn bằng "song song" của dự án
@@ -192,52 +192,48 @@ public class ScriptImageRunner {
 
     /**
      * Duyệt ảnh chờ duyệt của mã: đổi tên thành &lt;thư mục ảnh tham chiếu&gt;/&lt;MÃ&gt;.&lt;đuôi&gt; (tạo thư mục nếu chưa có),
-     * ảnh cũ của mã (và file khác đang trùng tên) chuyển vào _cu/, gán ảnh cho mã rồi tự đẩy Virtual Portrait nếu bật.
+     * ảnh cũ của mã (và file khác đang trùng tên) chuyển vào _cu/, gán ảnh cho mã. Việc đẩy Virtual Portrait do bộ chạy video làm khi gửi clip.
      */
-    public void approve(Long refId) throws IOException {
-        GeneratedFile approved;
-        synchronized (this) {
-            ScriptReference r = references.findById(refId).orElseThrow();
-            if (r.getImageStatus() != ImageStatus.REVIEW || r.getPendingFileId() == null) {
-                throw new IllegalStateException("Mã " + r.getCode() + " không có ảnh chờ duyệt");
-            }
-            ScriptProject project = projects.findById(r.getProjectId()).orElseThrow();
-            GeneratedFile f = fileLibrary.get(r.getPendingFileId());
-            if (!Files.isRegularFile(fileLibrary.pathOf(f))) {
-                update(refId, x -> {
-                    x.setPendingFileId(null);
-                    x.setImageStatus(ImageStatus.NONE);
-                    x.setImageError("Ảnh chờ duyệt không còn trên máy – bấm Tạo lại");
-                });
-                throw new IllegalStateException("Ảnh chờ duyệt của " + r.getCode() + " không còn trên máy – tạo lại ảnh");
-            }
-            Path dir = refDir(project);
-            Files.createDirectories(dir);
-            // Ảnh cũ của mã nằm ngay trong thư mục tham chiếu → cất vào _cu/
-            if (r.getFileId() != null && !r.getFileId().equals(f.getId())) {
-                GeneratedFile old = fileLibrary.existing(List.of(r.getFileId())).stream().findFirst().orElse(null);
-                if (old != null && Files.isRegularFile(fileLibrary.pathOf(old))
-                        && dir.toAbsolutePath().normalize().equals(fileLibrary.pathOf(old).getParent())) {
-                    archive(old, dir, r.getCode());
-                }
-            }
-            Path target = dir.resolve(r.getCode() + "." + ext(fileLibrary.pathOf(f)));
-            if (Files.exists(target)) { // file khác đang chiếm tên MÃ.đuôi
-                GeneratedFile holder = fileLibrary.findByPath(target).orElse(null);
-                if (holder != null) archive(holder, dir, r.getCode());
-                else Files.move(target, unique(dir.resolve(ARCHIVE_DIR), r.getCode() + "_" + java.time.LocalDateTime.now().format(STAMP), ext(target)));
-            }
-            approved = fileLibrary.move(f, target);
-            update(refId, x -> {
-                x.setFileId(f.getId());
-                x.setPendingFileId(null);
-                x.setImageStatus(ImageStatus.SUCCEEDED);
-                x.setImageError(null);
-                x.setBlockedReason(null);
-            });
-            log.info("Approved reference image {} -> {}", r.getCode(), target);
+    public synchronized void approve(Long refId) throws IOException {
+        ScriptReference r = references.findById(refId).orElseThrow();
+        if (r.getImageStatus() != ImageStatus.REVIEW || r.getPendingFileId() == null) {
+            throw new IllegalStateException("Mã " + r.getCode() + " không có ảnh chờ duyệt");
         }
-        autoPush(approved, refId);
+        ScriptProject project = projects.findById(r.getProjectId()).orElseThrow();
+        GeneratedFile f = fileLibrary.get(r.getPendingFileId());
+        if (!Files.isRegularFile(fileLibrary.pathOf(f))) {
+            update(refId, x -> {
+                x.setPendingFileId(null);
+                x.setImageStatus(ImageStatus.NONE);
+                x.setImageError("Ảnh chờ duyệt không còn trên máy – bấm Tạo lại");
+            });
+            throw new IllegalStateException("Ảnh chờ duyệt của " + r.getCode() + " không còn trên máy – tạo lại ảnh");
+        }
+        Path dir = refDir(project);
+        Files.createDirectories(dir);
+        // Ảnh cũ của mã nằm ngay trong thư mục tham chiếu → cất vào _cu/
+        if (r.getFileId() != null && !r.getFileId().equals(f.getId())) {
+            GeneratedFile old = fileLibrary.existing(List.of(r.getFileId())).stream().findFirst().orElse(null);
+            if (old != null && Files.isRegularFile(fileLibrary.pathOf(old))
+                    && dir.toAbsolutePath().normalize().equals(fileLibrary.pathOf(old).getParent())) {
+                archive(old, dir, r.getCode());
+            }
+        }
+        Path target = dir.resolve(r.getCode() + "." + ext(fileLibrary.pathOf(f)));
+        if (Files.exists(target)) { // file khác đang chiếm tên MÃ.đuôi
+            GeneratedFile holder = fileLibrary.findByPath(target).orElse(null);
+            if (holder != null) archive(holder, dir, r.getCode());
+            else Files.move(target, unique(dir.resolve(ARCHIVE_DIR), r.getCode() + "_" + java.time.LocalDateTime.now().format(STAMP), ext(target)));
+        }
+        fileLibrary.move(f, target);
+        update(refId, x -> {
+            x.setFileId(f.getId());
+            x.setPendingFileId(null);
+            x.setImageStatus(ImageStatus.SUCCEEDED);
+            x.setImageError(null);
+            x.setBlockedReason(null);
+        });
+        log.info("Approved reference image {} -> {}", r.getCode(), target);
     }
 
     /** Bỏ ảnh chờ duyệt (xoá file); mã giữ ảnh cũ nếu có. */
@@ -297,14 +293,6 @@ public class ScriptImageRunner {
         return Files.isRegularFile(path) ? path.toString() : null;
     }
 
-    private void autoPush(GeneratedFile f, Long refId) {
-        try {
-            JobContext ctx = new JobContext("ref-" + refId, "asset-push", "Đẩy ảnh tham chiếu", Instant.now());
-            assetLibrary.autoPush(List.of(f), ctx);
-        } catch (Exception e) {
-            log.warn("Auto push of reference image {} failed: {}", f.getId(), e.getMessage());
-        }
-    }
 
     private void handleError(Long refId, ScriptProject project, Exception e) {
         String msg = GlobalExceptionHandler.describe(e);

@@ -657,7 +657,7 @@ function downloadZip(what) {
               <el-button type="primary" plain :loading="busy === 'vpmatch'" @click="matchVpAssets"><el-icon><Connection /></el-icon>&nbsp;Ghép asset VP theo tên</el-button>
               <p class="hint max-w-3xl">
                 Ảnh nhân vật lấy từ máy được app tự đẩy lên Virtual Portrait (qua bucket TOS riêng tư) trước khi gửi clip – hoặc bấm nút đẩy trước cho nhanh.
-                Ảnh tạo bằng AI vào mục <b>chờ duyệt</b> trước (<code>_cho-duyet/</code>): bấm <b>Duyệt</b> để đổi tên thành <code>MÃ.jpeg</code> trong thư mục ảnh tham chiếu của dự án (ảnh cũ chuyển vào <code>_cu/</code>), hoặc <b>Tạo lại</b> / <b>Bỏ</b>.
+                Ảnh tạo bằng AI vào mục <b>chờ duyệt</b> trước (<code>_cho-duyet/</code>): bấm <b>Duyệt</b> để đổi tên thành <code>MÃ.jpeg</code> trong thư mục ảnh tham chiếu của dự án (ảnh cũ chuyển vào <code>_cu/</code>), hoặc <b>Tạo lại</b> / <b>Bỏ</b>. Việc đẩy Virtual Portrait do phần chạy video tự làm khi gửi clip.
                 Prompt ảnh được viết sẵn từ mô tả nhân vật / bối cảnh / đạo cụ trong Excel (bấm “Prompt” để xem, sửa). Nhân vật nhiều bộ đồ:
                 bộ đầu được tạo trước và dùng làm tham chiếu khuôn mặt cho các bộ sau. Hoặc đặt tên file đúng mã (vd <code>CHAR_YVO_NAVYTEE_01.png</code>) rồi bấm “Tự ghép”, hoặc tải lên / chọn từ thư viện cho từng mã.
                 Ảnh nhân vật là người thật nên đẩy vào <b>Virtual Portrait</b> trước – khi ảnh đã có asset Active, app gửi <code>asset://</code> để Seedance không chặn mặt người.
