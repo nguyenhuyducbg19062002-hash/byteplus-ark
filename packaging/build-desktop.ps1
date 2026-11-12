@@ -9,6 +9,7 @@ param([switch]$NoInstall)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $appName = 'Ark Studio'
+$version = '1.0.0'   # tăng khi phát hành bản mới (tên file Setup + mục gỡ cài đặt)
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 
@@ -60,6 +61,18 @@ if (Test-Path $tar) {
     Compress-Archive -Path $stage -DestinationPath $zip -Force
 }
 Write-Host ("Đã nén: $zip ({0:N0} MB)" -f ((Get-Item $zip).Length / 1MB)) -ForegroundColor Green
+
+Step 'Tạo file cài đặt .exe (Inno Setup)'
+$iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($iscc) {
+    & $iscc /Q "/DAppVersion=$version" (Join-Path $PSScriptRoot 'ark-studio.iss')
+    if ($LASTEXITCODE) { throw 'Inno Setup lỗi' }
+    $setup = Join-Path $out "ArkStudio-Setup-$version.exe"
+    Write-Host ("Đã tạo: $setup ({0:N0} MB)" -f ((Get-Item $setup).Length / 1MB)) -ForegroundColor Green
+} else {
+    Write-Host 'Bỏ qua: chưa cài Inno Setup 6 (winget install JRSoftware.InnoSetup) – vẫn có file zip ở trên.' -ForegroundColor Yellow
+}
 
 if ($NoInstall) { return }
 
