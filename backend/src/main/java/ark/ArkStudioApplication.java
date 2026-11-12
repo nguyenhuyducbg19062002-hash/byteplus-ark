@@ -11,6 +11,11 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 public class ArkStudioApplication {
     public static void main(String[] args) {
+        // Bản app desktop (jpackage truyền -Dark.desktop=true): cửa sổ riêng + khay hệ thống, dữ liệu ở %USERPROFILE%\.byteplus-ark
+        if (Boolean.getBoolean("ark.desktop") || java.util.Arrays.asList(args).contains("--desktop")) {
+            ark.desktop.DesktopLauncher.launch(args);
+            return;
+        }
         // H2 database lives in <project>/data whether started from the project root or from backend/
         if (System.getProperty("app.data-dir") == null) {
             System.setProperty("app.data-dir", projectRoot().resolve("data").toString().replace('\\', '/'));

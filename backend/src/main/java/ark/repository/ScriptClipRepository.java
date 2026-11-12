@@ -25,6 +25,8 @@ public interface ScriptClipRepository extends JpaRepository<ScriptClip, Long> {
 
     long countByProjectIdAndStatus(Long projectId, ScriptClip.Status status);
 
+    long countByStatus(ScriptClip.Status status);
+
     /** Hàng đợi: ưu tiên clip được làm lại, sau đó theo thứ tự kịch bản. */
     List<ScriptClip> findByProjectIdAndStatusOrderByRunPriorityDescSeqAsc(Long projectId, ScriptClip.Status status);
 

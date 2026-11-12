@@ -29,7 +29,22 @@ Backend (`backend/src/main/java/ark`), theo tầng Controller → Service → Re
 
 Frontend (`frontend/src`): Pinia (`stores/settings`, `models`, `references`, `ui`). `composables/useAsync` kết hợp `<AsyncState>` để mọi lời gọi API đều có trạng thái loading, lỗi (kèm nút Thử lại) và trống. `<StatusBadge>` hiển thị trạng thái dạng viên thuốc (xanh/vàng/đỏ/xám). Có dark mode.
 
-## Chạy
+## App desktop (dùng hằng ngày)
+
+```bat
+packaginguild-desktop.bat     :: build giao diện + backend, đóng gói kèm Java, cài vào máy
+```
+Sau đó mở **Ark Studio** trên Desktop / Start Menu – không cần cmd, npm, mvn hay trình duyệt:
+- Cài ở `%LOCALAPPDATA%\Programs\Ark Studio` (Java thu gọn bằng jlink + jar có sẵn giao diện). Lối tắt chạy `runtimein\javaw.exe`
+  (chữ ký Oracle) chứ không phải exe tự build – loại exe chưa ký hay bị diệt virus (Avast) chặn / cách ly.
+- Giao diện mở trong cửa sổ riêng (Edge chế độ app, hồ sơ riêng `%USERPROFILE%\.byteplus-ark\webview`), backend nghe `127.0.0.1:18080`.
+- Biểu tượng ở khay hệ thống: Mở Ark Studio · Mở thư mục lưu · Thoát. Đóng cửa sổ khi đang chạy clip / ảnh → app chạy nền, xong việc tự thoát;
+  không có việc thì thoát luôn. Mở lại khi app đang chạy → chỉ mở thêm cửa sổ.
+- Dữ liệu: DB `%USERPROFILE%\.byteplus-ark\data`, log `%USERPROFILE%\.byteplus-ark\logsrk-studio.log`, key ở `config.properties` cùng chỗ.
+  Ảnh / video theo **Thư mục lưu** (Cài đặt); chưa đặt thì mặc định `Documents\BytePlus Ark Studio`. Cài lại / cập nhật không mất dữ liệu.
+- Cập nhật: thoát app (khay › Thoát) rồi chạy lại `packaginguild-desktop.bat`.
+
+## Chạy bản dev
 
 Yêu cầu: JDK 17+, Node 18+. Không cần cài Maven vì đã có `mvnw`.
 

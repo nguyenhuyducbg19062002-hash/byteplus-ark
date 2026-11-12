@@ -13,4 +13,10 @@ import router from './router'
 
 const app = createApp(App)
 for (const [name, comp] of Object.entries(Icons)) app.component(name, comp)
+
+// Bản app desktop: báo cho backend biết cửa sổ còn mở (đóng cửa sổ → app thoát hoặc chạy nền nếu còn việc)
+const beat = () => fetch('/api/v1/app/heartbeat', { method: 'POST' }).catch(() => {})
+beat()
+setInterval(beat, 5000)
+window.addEventListener('pagehide', () => navigator.sendBeacon?.('/api/v1/app/closing'))
 app.use(createPinia()).use(router).use(ElementPlus, { locale: vi }).mount('#app')

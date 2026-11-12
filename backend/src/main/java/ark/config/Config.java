@@ -64,6 +64,8 @@ public class Config {
     public Path outputDir() {
         String d = props.getProperty("output_dir", "").trim();
         if (!d.isEmpty()) return Path.of(d);
+        // Bản app desktop: thư mục cài đặt không ghi được → mặc định Documents\BytePlus Ark Studio
+        if (Boolean.getBoolean("ark.desktop")) return Path.of(System.getProperty("user.home"), "Documents", "BytePlus Ark Studio");
         // Chạy từ thư mục backend\ → lưu vào <project>\output
         Path cwd = Path.of(System.getProperty("user.dir")).toAbsolutePath();
         Path base = cwd.getFileName() != null && cwd.getFileName().toString().equalsIgnoreCase("backend") ? cwd.getParent() : cwd;

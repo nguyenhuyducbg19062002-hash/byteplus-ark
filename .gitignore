@@ -10,3 +10,4 @@ desktop-legacy/dist/
 *.class
 *.jar
 !backend/.mvn/wrapper/*.jar
+build-desktop/

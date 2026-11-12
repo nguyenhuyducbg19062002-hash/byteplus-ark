@@ -98,6 +98,11 @@ public class JobService {
         }
     }
 
+    /** Số job nền đang chạy. */
+    public int runningCount() {
+        return running.size();
+    }
+
     public JobDto get(String id) {
         JobContext ctx = running.get(id);
         if (ctx != null) return toDto(ctx);
