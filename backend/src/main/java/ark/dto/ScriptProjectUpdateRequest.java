@@ -31,6 +31,12 @@ public class ScriptProjectUpdateRequest {
     /** true = ảnh AI tạo xong được duyệt luôn, không qua mục chờ duyệt. */
     private Boolean autoApproveImages;
 
+    @Pattern(regexp = "PROJECT|FOLDER", message = "Nơi lưu ảnh không hợp lệ")
+    private String refSaveMode;
+
+    @Size(max = 500, message = "Đường dẫn thư mục tối đa 500 ký tự")
+    private String refSaveDir;
+
     @Min(value = 1, message = "Chạy song song tối thiểu 1")
     @Max(value = 50, message = "Chạy song song tối đa 50")
     private Integer maxParallel;

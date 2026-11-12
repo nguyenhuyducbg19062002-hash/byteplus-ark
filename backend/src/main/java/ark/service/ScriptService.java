@@ -93,6 +93,15 @@ public class ScriptService {
         if (req.getMaxParallel() != null) p.setMaxParallel(req.getMaxParallel());
         if (req.getMaxAttempts() != null) p.setMaxAttempts(req.getMaxAttempts());
         if (req.getAutoApproveImages() != null) p.setAutoApproveImages(req.getAutoApproveImages());
+        if (req.getRefSaveDir() != null) {
+            String d = req.getRefSaveDir().trim();
+            if (!d.isEmpty() && !Path.of(d).isAbsolute()) throw new IllegalArgumentException("Thư mục lưu ảnh phải là đường dẫn đầy đủ, vd D:\\Anh REF");
+            p.setRefSaveDir(d.isEmpty() ? null : d);
+        }
+        if (req.getRefSaveMode() != null) p.setRefSaveMode(req.getRefSaveMode());
+        if ("FOLDER".equals(p.getRefSaveMode()) && p.getRefSaveDir() == null) {
+            throw new IllegalArgumentException("Chọn “Thư mục riêng” thì phải nhập đường dẫn thư mục");
+        }
         if (req.getImageModel() != null) p.setImageModel(Models.image(req.getImageModel()).id());
         Models.ImageModel im = ScriptImageRunner.model(p);
         String size = req.getImageSize() != null ? req.getImageSize() : p.getImageSize();
@@ -527,7 +536,7 @@ public class ScriptService {
                         || r.getImageStatus() == ScriptReference.ImageStatus.GENERATING).count())
                 .imagesFailed((int) refs.values().stream().filter(r -> r.getImageStatus() == ScriptReference.ImageStatus.FAILED).count())
                 .imagesReview((int) refs.values().stream().filter(r -> r.getImageStatus() == ScriptReference.ImageStatus.REVIEW).count())
-                .autoApproveImages(p.isAutoApproveImages())
+                .autoApproveImages(p.isAutoApproveImages()).refSaveMode(p.getRefSaveMode()).refSaveDir(p.getRefSaveDir())
                 .pausedReason(p.getPausedReason()).cooldownUntil(p.getCooldownUntil()).createdAt(p.getCreatedAt())
                 .counts(counts).refsTotal(refs.size()).refsMissing(missing).blockedClips(blocked).warningClips(warn)
                 .build();

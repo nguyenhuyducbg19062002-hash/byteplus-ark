@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { formatTime } from '../api'
 import { useAsync } from '../composables/useAsync'
 import { useModelsStore } from '../stores/models'
+import { useSettingsStore } from '../stores/settings'
 import PageHeader from '../components/PageHeader.vue'
 import AsyncState from '../components/AsyncState.vue'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -18,6 +19,13 @@ import RefFolderImport from '../components/RefFolderImport.vue'
  * 4. Xem video, làm lại clip hỏng theo mã (kèm ghi chú sửa).
  */
 const models = useModelsStore()
+const appSettings = useSettingsStore()
+/** Thư mục ảnh đã duyệt khi để app tự tạo: <Thư mục lưu (Cài đặt)>/assets/<dự án> – cùng gốc với video. */
+const projectRefDir = computed(() => {
+  const root = appSettings.settings?.outputDir
+  const sep = root?.includes('/') && !root.includes('\\') ? '/' : '\\'
+  return root && project.value ? [root, 'assets', project.value.folder].join(sep) : ['output', 'assets', '<dự án>'].join(sep)
+})
 const projects = useAsync(() => api.get('/script-projects', { silent: true }), { initial: [] })
 const currentId = ref(null)
 const project = computed(() => (projects.data.value || []).find((p) => p.id === currentId.value) || null)
@@ -38,7 +46,7 @@ const refs = useAsync(() => api.get(`/script-projects/${currentId.value}/referen
 const importing = ref(false)
 const importResult = ref(null)
 const busy = ref('')
-const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', autoApproveImages: false })
+const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', autoApproveImages: false, refSaveMode: 'PROJECT', refSaveDir: '' })
 const settingsErrors = ref({})
 const redo = reactive({ codes: '', note: '' })
 const expanded = ref([])
@@ -120,6 +128,7 @@ async function tick() {
 }
 onActivated(() => {
   models.ensure()
+  if (!appSettings.settings) appSettings.load()
   tick()
 })
 onDeactivated(() => clearTimeout(timer))
@@ -146,7 +155,8 @@ watch(filter, () => {
 function pick(p) {
   return {
     model: p.model, resolution: p.resolution, ratio: p.ratio, generateAudio: p.generateAudio, maxParallel: p.maxParallel,
-    maxAttempts: p.maxAttempts, imageModel: p.imageModel, imageSize: p.imageSize, autoApproveImages: p.autoApproveImages
+    maxAttempts: p.maxAttempts, imageModel: p.imageModel, imageSize: p.imageSize, autoApproveImages: p.autoApproveImages,
+    refSaveMode: p.refSaveMode || 'PROJECT', refSaveDir: p.refSaveDir || ''
   }
 }
 watch(
@@ -511,6 +521,21 @@ function downloadZip(what) {
                   </el-select>
                 </div>
               </div>
+              <div class="mt-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+                <div class="sm:col-span-2">
+                  <label class="field-label">Lưu ảnh đã duyệt</label>
+                  <el-select v-model="settings.refSaveMode" class="w-full">
+                    <el-option value="PROJECT" label="Tự tạo – cùng thư mục lưu với video" />
+                    <el-option value="FOLDER" label="Tự tạo + chép vào thư mục riêng của tôi" />
+                  </el-select>
+                  <p class="hint mt-1 break-all">Ảnh duyệt lưu ở <code>{{ projectRefDir }}</code> (đổi “Thư mục lưu” ở trang Cài đặt – video cũng lưu ở đó).</p>
+                </div>
+                <div v-if="settings.refSaveMode === 'FOLDER'" class="sm:col-span-3 lg:col-span-4">
+                  <label class="field-label">Thư mục riêng (tự tạo NHAN VAT / BOI CANH / DAO CU bên trong)</label>
+                  <el-input v-model="settings.refSaveDir" placeholder="vd D:\Anh REF\S11_11" clearable />
+                  <p v-if="settingsErrors.refSaveDir" class="mt-1 text-xs text-rose-600">{{ settingsErrors.refSaveDir }}</p>
+                </div>
+              </div>
               <div class="mt-4 flex flex-wrap items-center gap-4">
                 <el-checkbox v-model="settings.generateAudio">Tạo âm thanh (thoại trong prompt)</el-checkbox>
                 <el-checkbox v-model="settings.autoApproveImages">Tự duyệt ảnh AI (bỏ qua bước chờ duyệt)</el-checkbox>
@@ -652,12 +677,13 @@ function downloadZip(what) {
               <el-button v-if="vpPending.length" type="warning" plain :loading="busy === 'vp'" @click="pushCharactersToVp">
                 <el-icon><UploadFilled /></el-icon>&nbsp;Đẩy {{ vpPending.length }} ảnh nhân vật lên Virtual Portrait
               </el-button>
+              <el-button plain @click="downloadZip('images')"><el-icon><Download /></el-icon>&nbsp;Tải hết ảnh về (.zip)</el-button>
               <el-button type="success" plain @click="folderImport = true"><el-icon><FolderOpened /></el-icon>&nbsp;Nhập thư mục ảnh</el-button>
               <el-button :loading="busy === 'auto'" @click="autoMatch"><el-icon><Connection /></el-icon>&nbsp;Tự ghép theo tên file</el-button>
               <el-button type="primary" plain :loading="busy === 'vpmatch'" @click="matchVpAssets"><el-icon><Connection /></el-icon>&nbsp;Ghép asset VP theo tên</el-button>
               <p class="hint max-w-3xl">
                 Ảnh nhân vật lấy từ máy được app tự đẩy lên Virtual Portrait (qua bucket TOS riêng tư) trước khi gửi clip – hoặc bấm nút đẩy trước cho nhanh.
-                Ảnh tạo bằng AI vào mục <b>chờ duyệt</b> trước (<code>_cho-duyet/</code>): bấm <b>Duyệt</b> để đổi tên thành <code>MÃ.jpeg</code> trong thư mục ảnh tham chiếu của dự án (ảnh cũ chuyển vào <code>_cu/</code>), hoặc <b>Tạo lại</b> / <b>Bỏ</b>. Việc đẩy Virtual Portrait do phần chạy video tự làm khi gửi clip.
+                Ảnh tạo bằng AI vào mục <b>chờ duyệt</b> trước (<code>_cho-duyet/</code>): bấm <b>Duyệt</b> để đổi tên thành <code>MÃ.jpeg</code> trong thư mục ảnh tham chiếu của dự án (ảnh cũ chuyển vào <code>_cu/</code>; nếu chọn “thư mục riêng” trong Cấu hình chạy thì chép thêm vào đó theo loại), hoặc <b>Tạo lại</b> / <b>Bỏ</b>. Việc đẩy Virtual Portrait do phần chạy video tự làm khi gửi clip.
                 Prompt ảnh được viết sẵn từ mô tả nhân vật / bối cảnh / đạo cụ trong Excel (bấm “Prompt” để xem, sửa). Nhân vật nhiều bộ đồ:
                 bộ đầu được tạo trước và dùng làm tham chiếu khuôn mặt cho các bộ sau. Hoặc đặt tên file đúng mã (vd <code>CHAR_YVO_NAVYTEE_01.png</code>) rồi bấm “Tự ghép”, hoặc tải lên / chọn từ thư viện cho từng mã.
                 Ảnh nhân vật là người thật nên đẩy vào <b>Virtual Portrait</b> trước – khi ảnh đã có asset Active, app gửi <code>asset://</code> để Seedance không chặn mặt người.

@@ -67,6 +67,18 @@ public class ScriptProject {
         return Boolean.TRUE.equals(autoApproveImages);
     }
 
+    /** Nơi lưu ảnh tham chiếu đã duyệt: PROJECT = chỉ output/assets/&lt;dự án&gt;; FOLDER = chép thêm vào refSaveDir. */
+    @Column(length = 10)
+    private String refSaveMode;
+
+    /** Thư mục riêng trên máy (FOLDER): ảnh chép vào &lt;thư mục&gt;/NHAN VAT|BOI CANH|DAO CU|KHAC/&lt;MÃ&gt;.&lt;đuôi&gt;. */
+    @Column(length = 500)
+    private String refSaveDir;
+
+    public String getRefSaveMode() {
+        return refSaveMode == null ? "PROJECT" : refSaveMode;
+    }
+
     /** Số clip gửi song song tối đa. */
     private int maxParallel = 3;
 

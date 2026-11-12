@@ -79,6 +79,8 @@ Luồng giống Flow Batch Studio nhưng chạy ngay trong backend (không cần
    **Duyệt ảnh AI**: ảnh Seedream tạo xong vào mục *chờ duyệt* `output/assets/<dự án>/_cho-duyet/<mã>_<thời gian>.jpeg`, chưa dùng cho clip.
    Bấm **Duyệt** (hoặc “Duyệt tất cả”) → đổi tên thành `output/assets/<dự án>/<mã>.jpeg` (tự tạo thư mục nếu chưa có), ảnh cũ của mã chuyển vào `_cu/`,
    và gán cho mã (không đẩy Virtual Portrait lúc duyệt – bộ chạy video tự đẩy khi gửi clip); **Tạo lại** / **Bỏ ảnh mới** thì xoá ảnh chờ duyệt. Clip dùng mã đang tạo / chờ duyệt ảnh sẽ đứng chờ.
+   Cấu hình chạy › **Lưu ảnh đã duyệt**: chỉ thư mục dự án, hoặc chép thêm vào thư mục riêng `<thư mục>/NHAN VAT|BOI CANH|DAO CU|KHAC/<mã>.jpeg`
+   (tự tạo thư mục, file trùng tên chuyển vào `_cu/`). Nút **Tải hết ảnh về (.zip)** tải mọi ảnh tham chiếu đã gán.
    Nhân vật nhiều bộ đồ: các bộ sau chỉ tạo khi ảnh bộ đầu đã được duyệt. Bật “Tự duyệt ảnh AI” trong Cấu hình chạy để bỏ qua bước này.
    Nút “Tạo ảnh thiếu + chạy video” làm cả hai: clip nào đủ ảnh thì tự chạy video, dự án không tạm dừng khi ảnh còn đang tạo.
    Ảnh có asset Virtual Portrait Active được gửi dạng `asset://` (tránh Seedance chặn mặt người thật), nếu không thì URL gốc / base64.

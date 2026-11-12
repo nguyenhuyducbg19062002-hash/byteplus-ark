@@ -234,6 +234,38 @@ public class ScriptImageRunner {
             x.setBlockedReason(null);
         });
         log.info("Approved reference image {} -> {}", r.getCode(), target);
+        if ("FOLDER".equals(project.getRefSaveMode()) && project.getRefSaveDir() != null) {
+            try {
+                Path copy = copyToUserFolder(project, r, target);
+                log.info("Copied approved image {} -> {}", r.getCode(), copy);
+            } catch (Exception e) {
+                String msg = "Đã duyệt nhưng không chép được vào " + project.getRefSaveDir() + ": " + e.getMessage();
+                update(refId, x -> x.setImageError(msg));
+                throw new IllegalStateException(msg);
+            }
+        }
+    }
+
+    /** Tên thư mục con theo loại mã (giống cấu trúc “Anh REF” người dùng hay dùng). */
+    public static String kindFolder(ScriptReference.Kind k) {
+        return switch (k) {
+            case CHARACTER -> "NHAN VAT";
+            case LOCATION -> "BOI CANH";
+            case PROP -> "DAO CU";
+            default -> "KHAC";
+        };
+    }
+
+    /** Chép ảnh đã duyệt vào &lt;thư mục riêng&gt;/&lt;loại&gt;/&lt;MÃ&gt;.&lt;đuôi&gt; (tự tạo thư mục); file cũ trùng tên chuyển vào _cu/. */
+    private Path copyToUserFolder(ScriptProject project, ScriptReference r, Path source) throws IOException {
+        Path dir = Path.of(project.getRefSaveDir()).resolve(kindFolder(r.getKind()));
+        Files.createDirectories(dir);
+        Path target = dir.resolve(source.getFileName().toString());
+        if (Files.exists(target)) {
+            Files.move(target, unique(dir.resolve(ARCHIVE_DIR), r.getCode() + "_" + java.time.LocalDateTime.now().format(STAMP), ext(target)));
+        }
+        Files.copy(source, target);
+        return target;
     }
 
     /** Bỏ ảnh chờ duyệt (xoá file); mã giữ ảnh cũ nếu có. */
