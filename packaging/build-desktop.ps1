@@ -45,7 +45,21 @@ New-Item -ItemType Directory -Force (Join-Path $stage 'app') | Out-Null
 if ($LASTEXITCODE) { throw 'jlink lỗi' }
 Copy-Item (Join-Path $root 'backend\target\byteplus-ark-backend.jar') (Join-Path $stage 'app')
 Copy-Item (Join-Path $PSScriptRoot 'ark.ico') $stage
+# File cho người nhận bản zip: cài đặt / chạy thử / hướng dẫn
+Copy-Item (Join-Path $PSScriptRoot 'install-desktop.ps1') $stage
+Copy-Item (Join-Path $PSScriptRoot 'dist\*') $stage
 Write-Host "Đã tạo: $stage" -ForegroundColor Green
+
+Step 'Nén file zip để gửi đi'
+$zip = Join-Path $out ('ArkStudio-win64-' + (Get-Date -Format 'yyyyMMdd') + '.zip')
+$tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+if (Test-Path $tar) {
+    & $tar -a -c -f $zip -C $out $appName
+    if ($LASTEXITCODE) { throw 'Nén zip lỗi' }
+} else {
+    Compress-Archive -Path $stage -DestinationPath $zip -Force
+}
+Write-Host ("Đã nén: $zip ({0:N0} MB)" -f ((Get-Item $zip).Length / 1MB)) -ForegroundColor Green
 
 if ($NoInstall) { return }
 

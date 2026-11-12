@@ -1,0 +1,33 @@
+﻿ARK STUDIO - tạo ảnh (Seedream) / video (Seedance) bằng BytePlus ModelArk
+=========================================================================
+
+YÊU CẦU: Windows 10/11 64-bit, có Microsoft Edge (Windows có sẵn). KHÔNG cần cài Java.
+
+CÀI ĐẶT
+  1. Giải nén file .zip ra một thư mục bất kỳ (chuột phải > Extract All). Đừng chạy thẳng trong file zip.
+  2. Bấm đúp "Cai dat Ark Studio.bat".
+     -> App được cài vào %LOCALAPPDATA%\Programs\Ark Studio, có icon "Ark Studio" trên Desktop và Start Menu, rồi tự mở.
+     (Nếu Windows hiện "Windows protected your PC": bấm "More info" > "Run anyway".)
+  Hoặc: bấm "Chay thu (khong cai).bat" để chạy luôn, không cài.
+
+LẦN ĐẦU MỞ
+  Vào trang Cài đặt (menu bên trái):
+  - API key ModelArk (console.byteplus.com > ModelArk > API keys) -> để tạo ảnh / video.
+  - Access Key / Secret Key + Project -> chỉ cần nếu dùng Virtual Portrait.
+  - Thư mục lưu: nơi lưu ảnh / video (mặc định Documents\BytePlus Ark Studio).
+  Bấm "Lưu cài đặt" rồi "Kiểm tra kết nối".
+
+DÙNG
+  - App mở trong cửa sổ riêng, có biểu tượng ở khay hệ thống (góc phải thanh taskbar):
+    Mở Ark Studio / Mở thư mục lưu / Thoát.
+  - Đóng cửa sổ khi đang tạo video / ảnh: app chạy nền và tự thoát khi xong.
+  - Model chưa kích hoạt trên tài khoản BytePlus sẽ báo lỗi "ModelNotOpen" -> kích hoạt trên console
+    hoặc chọn model khác.
+
+GỠ CÀI ĐẶT
+  Thoát app (khay > Thoát), xoá thư mục %LOCALAPPDATA%\Programs\Ark Studio và 2 icon "Ark Studio".
+  Dữ liệu + key nằm ở %USERPROFILE%\.byteplus-ark (xoá nếu muốn bỏ hẳn).
+
+BÁO LỖI
+  Gửi kèm file log: %USERPROFILE%\.byteplus-ark\logs\ark-studio.log
+  (dán đường dẫn này vào thanh địa chỉ của File Explorer để mở).
