@@ -13,4 +13,6 @@ public record ScriptProjectDto(Long id, String name, String sourceFile, String f
                                String imageModel, String imageSize, String promptModel, int imagesPending, int imagesFailed,
                                int imagesReview, boolean autoApproveImages, String refSaveMode, String refSaveDir,
                                ScriptProject.Status status, String pausedReason, Instant cooldownUntil, Instant createdAt,
-                               Map<String, Long> counts, int refsTotal, int refsMissing, int blockedClips, int warningClips) {}
+                               Map<String, Long> counts, int refsTotal, int refsMissing, int blockedClips, int warningClips,
+                               /** Đang chạy chỉ các clip đã chọn (không phải cả kịch bản). */
+                               boolean onlySelected, int selectedPending) {}

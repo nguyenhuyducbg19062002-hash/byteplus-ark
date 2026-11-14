@@ -87,6 +87,16 @@ public class ScriptProject {
         return refSaveMode == null ? "PROJECT" : refSaveMode;
     }
 
+    /**
+     * true = dự án đang chạy chỉ các clip đã chọn (ScriptClip.runSelected) – bấm chạy 1 clip / 1 cảnh không kéo theo cả kịch bản.
+     * false / null = chạy mọi clip chờ.
+     */
+    private Boolean onlySelected;
+
+    public boolean isOnlySelected() {
+        return Boolean.TRUE.equals(onlySelected);
+    }
+
     /** Số clip gửi song song tối đa. */
     private int maxParallel = 3;
 

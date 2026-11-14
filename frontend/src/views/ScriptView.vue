@@ -42,6 +42,13 @@ const clips = useAsync(
   { initial: { items: [], total: 0 } }
 )
 const refs = useAsync(() => api.get(`/script-projects/${currentId.value}/references`, { silent: true }), { initial: [] })
+/** Cảnh của kịch bản (theo cột cảnh trong Excel) để chọn chạy theo cảnh. */
+const scenes = useAsync(() => api.get(`/script-projects/${currentId.value}/scenes`, { silent: true }), { initial: [] })
+const clipTable = ref(null)
+/** Clip đang tick chọn (giữ qua các trang). */
+const selectedClips = ref([])
+const sceneSel = ref([])
+const redoDone = ref(false)
 
 const importing = ref(false)
 const importResult = ref(null)
@@ -118,7 +125,9 @@ async function refresh(all = true) {
   if (!currentId.value && projects.data.value?.length) currentId.value = projects.data.value[0].id
   if (currentId.value && !project.value) currentId.value = projects.data.value?.[0]?.id || null
   const imgs = project.value?.imagesPending > 0
-  if (currentId.value && all) await Promise.all([clips.run(), tab.value === 'refs' || imgs ? refs.run() : Promise.resolve()])
+  if (currentId.value && all) {
+    await Promise.all([clips.run(), scenes.run(), tab.value === 'refs' || imgs ? refs.run() : Promise.resolve()])
+  }
 }
 async function tick() {
   clearTimeout(timer)
@@ -138,6 +147,7 @@ watch(currentId, () => {
   filter.value = ''
   expanded.value = []
   importResult.value = null
+  clearSelection()
   if (project.value) Object.assign(settings, pick(project.value))
   if (currentId.value) {
     clips.run()
@@ -206,6 +216,30 @@ async function act(name, fn) {
 const start = () => act('start', () => api.post(`/script-projects/${currentId.value}/start`))
 const pause = () => act('pause', () => api.post(`/script-projects/${currentId.value}/pause`))
 const retryFailed = () => act('retry', () => api.post(`/script-projects/${currentId.value}/retry-failed`))
+const resumeSelected = () => act('resume', () => api.post(`/script-projects/${currentId.value}/resume-selected`))
+
+// ---------- chạy clip / cảnh đã chọn (không kéo theo cả kịch bản) ----------
+
+function onSelect(rows) {
+  selectedClips.value = rows
+}
+function clearSelection() {
+  clipTable.value?.clearSelection()
+  selectedClips.value = []
+}
+async function runPicked(body, what) {
+  await act('runPicked', () => api.post(`/script-projects/${currentId.value}/run-clips`, { ...body, redoDone: redoDone.value }))
+  ElMessage.success(`Đang chạy ${what} – các clip khác không bị gửi`)
+}
+async function runSelectedClips() {
+  const ids = selectedClips.value.map((r) => r.id)
+  await runPicked({ clipIds: ids }, `${ids.length} clip đã chọn`)
+  clearSelection()
+}
+async function runScenes() {
+  await runPicked({ scenes: sceneSel.value }, sceneSel.value.length === 1 ? `cảnh “${sceneSel.value[0]}”` : `${sceneSel.value.length} cảnh`)
+  sceneSel.value = []
+}
 
 async function saveSettings() {
   settingsErrors.value = {}
@@ -232,7 +266,8 @@ async function submitRedo() {
 
 // ---------- clip ----------
 
-function toggle(row) {
+function toggle(row, column) {
+  if (column?.type === 'selection') return // bấm ô tick chỉ để chọn, không mở chi tiết
   const i = expanded.value.indexOf(row.id)
   if (i >= 0) expanded.value.splice(i, 1)
   else {
@@ -242,7 +277,7 @@ function toggle(row) {
 }
 async function saveClip(row, run) {
   await act('clip' + row.id, () => api.put(`/script-clips/${row.id}`, { ...drafts[row.id], run }))
-  ElMessage.success(run ? `Đã lưu và đưa clip ${row.code} vào hàng đợi` : 'Đã lưu prompt')
+  ElMessage.success(run ? `Đã lưu và chạy riêng clip ${row.code}` : 'Đã lưu prompt')
 }
 const runClip = (row) => act('clip' + row.id, () => api.post(`/script-clips/${row.id}/run`))
 const cancelClip = (row) => act('clip' + row.id, () => api.post(`/script-clips/${row.id}/cancel`))
@@ -488,12 +523,24 @@ function downloadZip(what) {
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="text-lg font-semibold">{{ project.name }}</h2>
             <StatusBadge :status="PROJECT_STATUS[project.status].status" :label="PROJECT_STATUS[project.status].label" />
+            <el-tag v-if="project.onlySelected" type="warning" effect="plain" size="small">
+              Chỉ chạy clip đã chọn{{ project.selectedPending ? ` · còn ${project.selectedPending}` : '' }}
+            </el-tag>
             <div class="ml-auto flex flex-wrap gap-2">
               <el-button v-if="project.status !== 'RUNNING' && project.refsMissing" type="primary" :loading="busy === 'all'" @click="runAll">
                 <el-icon><MagicStick /></el-icon>&nbsp;Tạo ảnh thiếu + chạy video
               </el-button>
-              <el-button v-if="project.status !== 'RUNNING'" :type="project.refsMissing ? 'default' : 'primary'" :loading="busy === 'start'" @click="start">
-                <el-icon><VideoPlay /></el-icon>&nbsp;Chạy video
+              <el-button v-if="project.status !== 'RUNNING' && project.onlySelected && project.selectedPending" type="primary" :loading="busy === 'resume'" @click="resumeSelected">
+                <el-icon><VideoPlay /></el-icon>&nbsp;Tiếp tục {{ project.selectedPending }} clip đã chọn
+              </el-button>
+              <el-button
+                v-if="project.status !== 'RUNNING'"
+                :type="project.refsMissing || project.onlySelected ? 'default' : 'primary'"
+                :loading="busy === 'start'"
+                title="Chạy mọi clip đang chờ của cả kịch bản"
+                @click="start"
+              >
+                <el-icon><VideoPlay /></el-icon>&nbsp;Chạy tất cả clip
               </el-button>
               <el-button v-else type="warning" plain :loading="busy === 'pause'" @click="pause">
                 <el-icon><VideoPause /></el-icon>&nbsp;Tạm dừng
@@ -631,6 +678,28 @@ function downloadZip(what) {
               </el-button>
             </div>
 
+            <div class="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-indigo-50/70 p-3 ring-1 ring-inset ring-indigo-100 dark:bg-indigo-500/10 dark:ring-indigo-500/20">
+              <span class="text-sm font-medium text-indigo-700 dark:text-indigo-300">Chạy riêng:</span>
+              <el-select v-model="sceneSel" multiple collapse-tags collapse-tags-tooltip filterable clearable placeholder="Chọn cảnh…" class="!w-80">
+                <el-option v-for="sc in scenes.data.value" :key="sc.scene" :value="sc.scene" :label="sc.scene">
+                  <div class="flex items-center justify-between gap-4">
+                    <span class="truncate">{{ sc.scene }}</span>
+                    <span class="shrink-0 text-xs text-slate-400">{{ sc.done }}/{{ sc.total }} xong{{ sc.failed ? ` · ${sc.failed} lỗi` : '' }}</span>
+                  </div>
+                </el-option>
+              </el-select>
+              <el-button type="primary" :disabled="!sceneSel.length" :loading="busy === 'runPicked'" @click="runScenes">
+                <el-icon><VideoPlay /></el-icon>&nbsp;Chạy {{ sceneSel.length > 1 ? sceneSel.length + ' cảnh' : 'cảnh' }} đã chọn
+              </el-button>
+              <el-divider direction="vertical" />
+              <el-button type="primary" plain :disabled="!selectedClips.length" :loading="busy === 'runPicked'" @click="runSelectedClips">
+                <el-icon><VideoPlay /></el-icon>&nbsp;Chạy {{ selectedClips.length || '' }} clip đã tick
+              </el-button>
+              <el-button v-if="selectedClips.length" text @click="clearSelection">Bỏ chọn</el-button>
+              <el-checkbox v-model="redoDone" title="Mặc định bỏ qua clip đã có video">Tạo lại cả clip đã xong</el-checkbox>
+              <span class="hint w-full">Tick ô đầu dòng (chọn được qua nhiều trang) hoặc chọn cảnh rồi bấm chạy – chỉ những clip đó được gửi, các clip khác giữ nguyên. “Chạy tất cả clip” ở trên mới chạy cả kịch bản.</span>
+            </div>
+
             <div class="mb-3 flex flex-wrap items-center gap-3">
               <el-input v-model="query.q" placeholder="Tìm theo mã, cảnh, mã ảnh, nội dung prompt…" clearable class="max-w-md" @keyup.enter="search" @clear="search">
                 <template #prefix><el-icon><Search /></el-icon></template>
@@ -646,7 +715,16 @@ function downloadZip(what) {
               empty-icon="Film"
               @retry="clips.run()"
             >
-              <el-table :data="clips.data.value.items" row-key="id" :expand-row-keys="expanded" class="script-table" @row-click="toggle">
+              <el-table
+                ref="clipTable"
+                :data="clips.data.value.items"
+                row-key="id"
+                :expand-row-keys="expanded"
+                class="script-table"
+                @row-click="toggle"
+                @selection-change="onSelect"
+              >
+                <el-table-column type="selection" width="40" reserve-selection :selectable="(row) => row.status !== 'GENERATING'" />
                 <el-table-column type="expand" width="1">
                   <template #default="{ row }">
                     <div class="grid gap-5 px-4 py-3 xl:grid-cols-[1fr_380px]" @click.stop>
@@ -732,6 +810,7 @@ function downloadZip(what) {
                     <StatusBadge v-if="row.status === 'PENDING' && row.missingRefs.length" status="missing" label="Chờ ảnh" />
                     <StatusBadge v-else :status="CLIP_STATUS[row.status].status" :label="CLIP_STATUS[row.status].label" />
                     <div v-if="row.attempt" class="mt-1 text-[11px] text-slate-400">lần thử {{ row.attempt }}</div>
+                    <div v-if="row.runSelected && (row.status === 'PENDING' || row.status === 'GENERATING')" class="mt-1 text-[11px] font-medium text-indigo-500">● trong lượt chạy riêng</div>
                     <el-icon v-if="row.warnings.length" class="ml-1 text-indigo-500" :title="row.warnings.join('\n')"><WarningFilled /></el-icon>
                   </template>
                 </el-table-column>
@@ -747,7 +826,7 @@ function downloadZip(what) {
                     <div class="flex justify-end gap-1" @click.stop>
                       <el-button v-if="row.file" size="small" text type="primary" tag="a" :href="row.file.url" target="_blank"><el-icon><VideoCamera /></el-icon></el-button>
                       <el-button v-if="row.status === 'GENERATING' || row.status === 'PENDING'" size="small" text :loading="busy === 'clip' + row.id" @click="cancelClip(row)">Dừng</el-button>
-                      <el-button v-if="row.status !== 'GENERATING'" size="small" text type="primary" :loading="busy === 'clip' + row.id" @click="runClip(row)">{{ row.status === 'PENDING' ? 'Chạy ngay' : 'Tạo lại' }}</el-button>
+                      <el-button v-if="row.status !== 'GENERATING'" size="small" text type="primary" :loading="busy === 'clip' + row.id" title="Chỉ chạy clip này" @click="runClip(row)">{{ row.status === 'PENDING' ? 'Chạy ngay' : 'Tạo lại' }}</el-button>
                       <el-button size="small" text @click="toggle(row)">Chi tiết</el-button>
                     </div>
                   </template>

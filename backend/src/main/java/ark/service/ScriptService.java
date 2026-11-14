@@ -127,10 +127,26 @@ public class ScriptService {
         projects.delete(p);
     }
 
+    /** Tiếp tục lượt “chỉ chạy clip đã chọn” đang tạm dừng (không kéo theo cả kịch bản). */
+    @Transactional
+    public ScriptProjectDto resumeSelected(Long id) {
+        if (config.apiKey().isEmpty()) throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
+        ScriptProject p = project(id);
+        if (!p.isOnlySelected()) throw new IllegalStateException("Dự án không có lượt chạy clip đã chọn nào đang dở");
+        p.setStatus(ScriptProject.Status.RUNNING);
+        p.setPausedReason(null);
+        p.setCooldownUntil(null);
+        return toDto(projects.save(p));
+    }
+
+    /** Chạy cả kịch bản (nút “Chạy video”): mọi clip đang chờ, bỏ chế độ chỉ chạy clip đã chọn. */
     @Transactional
     public ScriptProjectDto start(Long id) {
         if (config.apiKey().isEmpty()) throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
+        project(id);
+        clips.clearRunSelected(id);
         ScriptProject p = project(id);
+        p.setOnlySelected(false);
         p.setStatus(ScriptProject.Status.RUNNING);
         p.setPausedReason(null);
         p.setCooldownUntil(null);
@@ -146,16 +162,91 @@ public class ScriptService {
         return toDto(projects.save(p));
     }
 
-    /** Đưa mọi clip lỗi / đã huỷ về hàng đợi và chạy dự án. */
+    /** Chạy lại chỉ các clip lỗi / đã huỷ (không kéo theo clip chờ khác). */
     @Transactional
     public ScriptProjectDto retryFailed(Long id) {
-        for (ScriptClip c : clips.findByProjectIdOrderBySeq(id)) {
-            if (c.getStatus() == ScriptClip.Status.FAILED || c.getStatus() == ScriptClip.Status.CANCELLED) {
-                resetForRun(c, 0);
-                clips.save(c);
-            }
+        List<Long> ids = clips.findByProjectIdOrderBySeq(id).stream()
+                .filter(c -> c.getStatus() == ScriptClip.Status.FAILED || c.getStatus() == ScriptClip.Status.CANCELLED)
+                .map(ScriptClip::getId).toList();
+        if (ids.isEmpty()) throw new IllegalStateException("Không có clip lỗi / đã huỷ");
+        return startSelected(id, ids, c -> resetForRun(c, 0));
+    }
+
+    /**
+     * Chạy chỉ các clip được chọn (theo id và / hoặc theo cảnh). Clip đang tạo bỏ qua; clip đã xong chỉ tạo lại khi redoDone;
+     * clip đang chờ giữ nguyên (kể cả task đang theo dõi), clip lỗi / đã huỷ được đặt lại.
+     */
+    @Transactional
+    public ScriptProjectDto runClips(Long id, ark.dto.ScriptRunClipsRequest req) {
+        project(id);
+        Set<Long> wantIds = req.getClipIds() == null ? Set.of() : Set.copyOf(req.getClipIds());
+        Set<String> wantScenes = req.getScenes() == null ? Set.of() : Set.copyOf(req.getScenes());
+        if (wantIds.isEmpty() && wantScenes.isEmpty()) throw new IllegalArgumentException("Chưa chọn clip hoặc cảnh nào");
+        List<ScriptClip> hit = clips.findByProjectIdOrderBySeq(id).stream()
+                .filter(c -> wantIds.contains(c.getId()) || wantScenes.contains(sceneOf(c))).toList();
+        List<Long> ids = hit.stream().filter(c -> c.getStatus() != ScriptClip.Status.GENERATING)
+                .filter(c -> req.isRedoDone() || c.getStatus() != ScriptClip.Status.SUCCEEDED)
+                .map(ScriptClip::getId).toList();
+        if (ids.isEmpty()) {
+            throw new IllegalStateException("Các clip đã chọn đều đã xong hoặc đang tạo – tick “Tạo lại cả clip đã xong” nếu muốn tạo lại");
         }
-        return start(id);
+        int prio = clips.maxPriority(id) + 1;
+        return startSelected(id, ids, c -> {
+            if (c.getStatus() == ScriptClip.Status.PENDING) c.setRunPriority(prio);
+            else resetForRun(c, prio);
+        });
+    }
+
+    /** Danh sách cảnh (theo cột cảnh trong Excel, giữ thứ tự kịch bản) kèm số clip theo trạng thái – để chọn chạy theo cảnh. */
+    public List<Map<String, Object>> scenes(Long id) {
+        project(id);
+        Map<String, Map<String, Object>> out = new LinkedHashMap<>();
+        for (ScriptClip c : clips.findByProjectIdOrderBySeq(id)) {
+            Map<String, Object> s = out.computeIfAbsent(sceneOf(c), k -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("scene", k);
+                m.put("total", 0);
+                m.put("done", 0);
+                m.put("failed", 0);
+                m.put("firstCode", c.getCode());
+                return m;
+            });
+            s.merge("total", 1, (a, b) -> (Integer) a + (Integer) b);
+            if (c.getStatus() == ScriptClip.Status.SUCCEEDED) s.merge("done", 1, (a, b) -> (Integer) a + (Integer) b);
+            if (c.getStatus() == ScriptClip.Status.FAILED) s.merge("failed", 1, (a, b) -> (Integer) a + (Integer) b);
+        }
+        return new ArrayList<>(out.values());
+    }
+
+    private static String sceneOf(ScriptClip c) {
+        return c.getSceneTitle() == null || c.getSceneTitle().isBlank() ? "(Không có tên cảnh)" : c.getSceneTitle().trim();
+    }
+
+    /**
+     * Đưa các clip vào lượt chạy mà KHÔNG kéo theo cả kịch bản: dự án đang chạy cả kịch bản thì chỉ cần đưa clip vào hàng đợi;
+     * nếu không, dự án chuyển sang “chỉ chạy clip đã chọn” (đang chạy chế độ này thì thêm clip vào lượt hiện tại).
+     */
+    private ScriptProjectDto startSelected(Long id, List<Long> clipIds, java.util.function.Consumer<ScriptClip> prepare) {
+        if (config.apiKey().isEmpty()) throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
+        ScriptProject before = project(id);
+        boolean running = before.getStatus() == ScriptProject.Status.RUNNING;
+        boolean runningAll = running && !before.isOnlySelected();
+        // Lượt chọn mới (đang tạm dừng giữa một lượt chọn thì thêm vào lượt đó, không bỏ lựa chọn cũ)
+        if (!running && !before.isOnlySelected()) clips.clearRunSelected(id); // – chạy trước khi sửa clip (lệnh này xoá bộ nhớ đệm JPA)
+        for (ScriptClip c : clips.findAllById(clipIds)) {
+            prepare.accept(c);
+            if (!runningAll) c.setRunSelected(true);
+            clips.save(c);
+        }
+        ScriptProject p = project(id);
+        if (!runningAll) {
+            p.setOnlySelected(true);
+            p.setStatus(ScriptProject.Status.RUNNING);
+            p.setPausedReason(null);
+            p.setCooldownUntil(null);
+            p = projects.save(p);
+        }
+        return toDto(p);
     }
 
     /** Làm lại clip theo mã ("005, 012-015, 019A"), có thể kèm ghi chú đạo diễn ghép vào cuối prompt. */
@@ -189,14 +280,13 @@ public class ScriptService {
         if (!busy.isEmpty()) throw new IllegalStateException("Clip đang tạo, dừng trước khi làm lại: " + String.join(", ", busy));
         int prio = clips.maxPriority(id) + 1;
         String note = req.getNote() == null ? "" : req.getNote().trim();
-        for (ScriptClip c : picked) {
+        // Chỉ chạy các clip làm lại, không kéo theo cả kịch bản
+        return startSelected(id, picked.stream().map(ScriptClip::getId).toList(), c -> {
             if (!note.isEmpty()) {
                 c.setPrompt(c.getPrompt() + "\n\nREVISION NOTE FROM THE DIRECTOR (apply this change, keep everything else unchanged): " + note);
             }
             resetForRun(c, prio);
-            clips.save(c);
-        }
-        return start(id);
+        });
     }
 
     // ---------- clip ----------
@@ -242,20 +332,25 @@ public class ScriptService {
         if (c.getStatus() == ScriptClip.Status.GENERATING) throw new IllegalStateException("Clip đang tạo – dừng trước khi sửa");
         c.setPrompt(req.getPrompt().trim());
         if (req.getDuration() != null) c.setDuration(req.getDuration());
-        if (req.isRun()) resetForRun(c, clips.maxPriority(c.getProjectId()) + 1);
-        clips.save(c);
-        if (req.isRun()) start(c.getProjectId());
-        return toDto(c, runner.refCheck(refMap(c.getProjectId())));
+        clips.saveAndFlush(c);
+        if (req.isRun()) { // chỉ chạy clip này
+            int prio = clips.maxPriority(c.getProjectId()) + 1;
+            startSelected(c.getProjectId(), List.of(clipId), x -> resetForRun(x, prio));
+        }
+        return toDto(clip(clipId), runner.refCheck(refMap(c.getProjectId())));
     }
 
     @Transactional
     public ScriptClipDto runClip(Long clipId) {
         ScriptClip c = clip(clipId);
         if (c.getStatus() == ScriptClip.Status.GENERATING) throw new IllegalStateException("Clip đang tạo");
-        resetForRun(c, clips.maxPriority(c.getProjectId()) + 1);
-        clips.save(c);
-        start(c.getProjectId());
-        return toDto(c, runner.refCheck(refMap(c.getProjectId())));
+        int prio = clips.maxPriority(c.getProjectId()) + 1;
+        // Chỉ chạy clip này (clip đang chờ giữ task đang theo dõi, clip khác thì tạo lại)
+        startSelected(c.getProjectId(), List.of(clipId), x -> {
+            if (x.getStatus() == ScriptClip.Status.PENDING) x.setRunPriority(prio);
+            else resetForRun(x, prio);
+        });
+        return toDto(clip(clipId), runner.refCheck(refMap(c.getProjectId())));
     }
 
     @Transactional
@@ -583,6 +678,9 @@ public class ScriptService {
                 .autoApproveImages(p.isAutoApproveImages()).refSaveMode(p.getRefSaveMode()).refSaveDir(p.getRefSaveDir())
                 .pausedReason(p.getPausedReason()).cooldownUntil(p.getCooldownUntil()).createdAt(p.getCreatedAt())
                 .counts(counts).refsTotal(refs.size()).refsMissing(missing).blockedClips(blocked).warningClips(warn)
+                .onlySelected(p.isOnlySelected())
+                .selectedPending((int) all.stream().filter(c -> c.isRunSelected() && (c.getStatus() == ScriptClip.Status.PENDING
+                        || c.getStatus() == ScriptClip.Status.GENERATING)).count())
                 .build();
     }
 
@@ -595,7 +693,8 @@ public class ScriptService {
                 .dialogue(c.getDialogue()).note(c.getNote()).warnings(c.warningList()).status(c.getStatus())
                 .attempt(c.getAttempt()).taskId(c.getTaskId()).error(err).file(fileDto(c.getFileId()))
                 .startedAt(c.getStartedAt()).finishedAt(c.getFinishedAt())
-                .blockAnalysis(parseAnalysis(c.getBlockAnalysis())).analyzing(blockAnalyzer.isAnalyzing(c.getId())).build();
+                .blockAnalysis(parseAnalysis(c.getBlockAnalysis())).analyzing(blockAnalyzer.isAnalyzing(c.getId()))
+                .runSelected(c.isRunSelected()).build();
     }
 
     private static Object parseAnalysis(String json) {

@@ -131,6 +131,7 @@ public class ScriptRunner {
         for (ScriptClip c : queue) {
             if (running >= p.getMaxParallel()) return;
             if (active.containsKey(c.getId())) continue;
+            if (p.isOnlySelected() && !c.isRunSelected()) continue; // chỉ chạy clip / cảnh đã chọn
             List<String> missing = check.missing(c);
             if (!missing.isEmpty()) {
                 blocked++;
@@ -171,11 +172,36 @@ public class ScriptRunner {
             String list = String.join(", ", missingCodes);
             if (list.length() > 380) list = list.substring(0, 380) + "… (" + missingCodes.size() + " mã)";
             fresh.setPausedReason(blocked + " clip đang chờ ảnh tham chiếu – thiếu: " + list);
+        } else if (fresh.isOnlySelected()) {
+            finishSelected(fresh);
+            return;
         } else {
             long ok = clips.countByProjectIdAndStatus(p.getId(), ScriptClip.Status.SUCCEEDED);
             long failed = clips.countByProjectIdAndStatus(p.getId(), ScriptClip.Status.FAILED);
             fresh.setStatus(ScriptProject.Status.DONE);
             fresh.setPausedReason("Đã chạy xong: " + ok + " thành công" + (failed > 0 ? ", " + failed + " lỗi" : ""));
+        }
+        projects.save(fresh);
+    }
+
+    /**
+     * Lượt "chỉ chạy clip đã chọn" đã xong: bỏ đánh dấu, dự án về DONE nếu không còn clip chờ, nếu không thì PAUSED
+     * (các clip khác vẫn chờ – bấm Chạy video để chạy hết).
+     */
+    private void finishSelected(ScriptProject fresh) {
+        List<ScriptClip> picked = clips.findByProjectIdOrderBySeq(fresh.getId()).stream().filter(ScriptClip::isRunSelected).toList();
+        long ok = picked.stream().filter(c -> c.getStatus() == ScriptClip.Status.SUCCEEDED).count();
+        long failed = picked.stream().filter(c -> c.getStatus() == ScriptClip.Status.FAILED).count();
+        long left = clips.countByProjectIdAndStatus(fresh.getId(), ScriptClip.Status.PENDING);
+        clips.clearRunSelected(fresh.getId());
+        fresh.setOnlySelected(false);
+        String done = "Đã chạy xong " + picked.size() + " clip đã chọn: " + ok + " thành công" + (failed > 0 ? ", " + failed + " lỗi" : "");
+        if (left > 0) {
+            fresh.setStatus(ScriptProject.Status.PAUSED);
+            fresh.setPausedReason(done + ". Còn " + left + " clip chưa chạy – bấm “Chạy video” để chạy hết.");
+        } else {
+            fresh.setStatus(ScriptProject.Status.DONE);
+            fresh.setPausedReason(done);
         }
         projects.save(fresh);
     }

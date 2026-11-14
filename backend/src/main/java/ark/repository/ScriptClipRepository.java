@@ -54,6 +54,12 @@ public interface ScriptClipRepository extends JpaRepository<ScriptClip, Long> {
         return moveIf(id, ScriptClip.Status.PENDING, ScriptClip.Status.CANCELLED, msg, null, now);
     }
 
+    /** Bỏ đánh dấu "chạy clip đã chọn" của cả dự án. */
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("update ScriptClip c set c.runSelected = false where c.projectId = :projectId and c.runSelected = true")
+    int clearRunSelected(Long projectId);
+
     /** Chỉ ghi phân tích vì sao bị chặn (không lưu cả entity → không đè trạng thái bộ chạy vừa đổi). */
     @Modifying(clearAutomatically = true)
     @Transactional

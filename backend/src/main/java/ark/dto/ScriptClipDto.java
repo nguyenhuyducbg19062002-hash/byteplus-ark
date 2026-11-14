@@ -14,4 +14,6 @@ public record ScriptClipDto(Long id, String code, int seq, String sceneTitle, St
                             int attempt, String taskId, String error, GeneratedFileDto file,
                             Instant startedAt, Instant finishedAt,
                             /** Phân tích vì sao bị chặn (category, summary, issues, fixedPrompt) – null nếu chưa có. */
-                            Object blockAnalysis, boolean analyzing) {}
+                            Object blockAnalysis, boolean analyzing,
+                            /** Clip nằm trong lượt chạy "chỉ clip đã chọn". */
+                            boolean runSelected) {}

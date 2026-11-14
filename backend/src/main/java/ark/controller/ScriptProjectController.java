@@ -92,6 +92,24 @@ public class ScriptProjectController {
         return service.retryFailed(id);
     }
 
+    /** Tiếp tục lượt chạy clip đã chọn đang tạm dừng. */
+    @PostMapping("/script-projects/{id}/resume-selected")
+    public ScriptProjectDto resumeSelected(@PathVariable Long id) {
+        return service.resumeSelected(id);
+    }
+
+    /** Chạy chỉ các clip / cảnh đã chọn – không kéo theo cả kịch bản. */
+    @PostMapping("/script-projects/{id}/run-clips")
+    public ScriptProjectDto runClips(@PathVariable Long id, @RequestBody ark.dto.ScriptRunClipsRequest req) {
+        return service.runClips(id, req);
+    }
+
+    /** Các cảnh của kịch bản (theo thứ tự) kèm số clip tổng / xong / lỗi. */
+    @GetMapping("/script-projects/{id}/scenes")
+    public List<java.util.Map<String, Object>> scenes(@PathVariable Long id) {
+        return service.scenes(id);
+    }
+
     @PostMapping("/script-projects/{id}/redo")
     public ScriptProjectDto redo(@PathVariable Long id, @Valid @RequestBody ScriptRedoRequest req) {
         return service.redo(id, req);

@@ -84,6 +84,13 @@ public class ScriptClip {
 
     private int attempt;
 
+    /** Clip nằm trong lượt "chỉ chạy clip đã chọn" của dự án (ScriptProject.onlySelected). null = false. */
+    private Boolean runSelected;
+
+    public boolean isRunSelected() {
+        return Boolean.TRUE.equals(runSelected);
+    }
+
     /** Clip được yêu cầu làm lại có ưu tiên cao hơn. */
     private int runPriority;
 
