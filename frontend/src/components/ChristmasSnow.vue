@@ -80,5 +80,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <canvas ref="canvas" class="pointer-events-none fixed inset-0 z-[1500]" aria-hidden="true" />
+  <canvas ref="canvas" class="pointer-events-none fixed inset-0 -z-10" aria-hidden="true" />
 </template>
