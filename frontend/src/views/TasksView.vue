@@ -33,6 +33,54 @@ async function remove(row) {
   tasks.run()
 }
 
+/** Thông số task: bỏ phần BytePlus không trả về (task lỗi thường không có resolution / ratio / duration). */
+function spec(row) {
+  const len = row.duration != null ? `${row.duration}s` : row.frames != null ? `${row.frames} frame` : null
+  return [row.resolution, row.ratio, len].filter((x) => x != null && x !== '').join(' · ') || '—'
+}
+
+/** Giải thích mã lỗi thường gặp (docs/api/error-codes.md). */
+const ERROR_HINT = [
+  [/^OutputVideoSensitiveContentDetected$/i, 'Video tạo ra bị kiểm duyệt chặn – làm dịu chi tiết nhạy cảm trong prompt rồi tạo lại (mỗi lần tạo cho kết quả khác)'],
+  [/^OutputAudioSensitiveContentDetected$/i, 'Âm thanh tạo ra bị kiểm duyệt chặn – sửa lời thoại / mô tả âm thanh, hoặc tắt tạo âm thanh'],
+  [/PolicyViolation/i, 'Nghi vi phạm bản quyền – đổi nội dung đầu vào'],
+  [/PrivacyInformation/i, 'Ảnh / video đầu vào có mặt người thật – dùng asset Virtual Portrait (asset://)'],
+  [/^Input(Text|Image|Video|Audio)SensitiveContentDetected/i, 'Đầu vào bị kiểm duyệt chặn – thay prompt / ảnh tham chiếu'],
+  [/SensitiveContentDetected/i, 'Nội dung bị kiểm duyệt chặn – đổi đầu vào rồi thử lại']
+]
+function errorHint(err) {
+  const code = err?.code || ''
+  return ERROR_HINT.find(([re]) => re.test(code))?.[1] || err?.message || ''
+}
+
+const selected = ref([])
+const deleting = ref(false)
+/** Xoá bản ghi các task đã chọn (task đang chạy bị bỏ qua), lần lượt từng task. */
+async function removeSelected() {
+  const rows = selected.value.filter((r) => r.status !== 'running')
+  if (!rows.length) return
+  await ElMessageBox.confirm(`Xoá / huỷ ${rows.length} task đã chọn? Bản ghi task bị xoá vĩnh viễn trên BytePlus (video đã tải về máy vẫn giữ).`,
+    'Xoá hàng loạt', { type: 'warning', confirmButtonText: 'Xoá', cancelButtonText: 'Huỷ' })
+  deleting.value = true
+  let ok = 0
+  const failed = []
+  try {
+    for (const r of rows) {
+      try {
+        await api.delete(`/video-tasks/${r.id}`, { silent: true })
+        ok++
+      } catch (e) {
+        failed.push(r.id)
+      }
+    }
+  } finally {
+    deleting.value = false
+  }
+  if (failed.length) ElMessage.warning(`Đã xoá ${ok}, lỗi ${failed.length} task`)
+  else ElMessage.success(`Đã xoá ${ok} task`)
+  tasks.run()
+}
+
 async function copy(text) {
   await navigator.clipboard.writeText(text)
   ElMessage.success('Đã copy')
@@ -49,6 +97,9 @@ onActivated(() => tasks.run())
           <StatusBadge :status="s" />
         </el-option>
       </el-select>
+      <el-button type="danger" plain :disabled="!selected.length" :loading="deleting" @click="removeSelected">
+        Xoá {{ selected.length || '' }} task đã chọn
+      </el-button>
       <el-button :loading="tasks.loading.value" @click="tasks.run()"><el-icon><Refresh /></el-icon></el-button>
     </PageHeader>
 
@@ -61,7 +112,8 @@ onActivated(() => tasks.run())
         empty-icon="VideoCamera"
         @retry="tasks.run()"
       >
-        <el-table v-loading="tasks.loading.value" :data="tasks.data.value.items">
+        <el-table v-loading="tasks.loading.value" :data="tasks.data.value.items" row-key="id" @selection-change="(rows) => (selected = rows)">
+          <el-table-column type="selection" width="44" :selectable="(row) => row.status !== 'running'" />
           <el-table-column label="Task" min-width="260">
             <template #default="{ row }">
               <div class="font-mono text-xs">{{ row.id }}</div>
@@ -76,11 +128,18 @@ onActivated(() => tasks.run())
           </el-table-column>
           <el-table-column label="Thông số" width="180">
             <template #default="{ row }">
-              <span class="text-sm">{{ row.resolution }} · {{ row.ratio }} · {{ row.duration ?? row.frames }}{{ row.duration != null ? 's' : 'f' }}</span>
+              <span class="text-sm">{{ spec(row) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="Lỗi" min-width="180" show-overflow-tooltip>
-            <template #default="{ row }"><span class="text-xs text-rose-600">{{ row.error ? `${row.error.code}: ${row.error.message}` : '' }}</span></template>
+          <el-table-column label="Lỗi" min-width="240">
+            <template #default="{ row }">
+              <el-tooltip v-if="row.error" placement="top" :content="`${row.error.code}: ${row.error.message}`">
+                <div class="text-xs leading-snug">
+                  <div class="truncate font-mono text-rose-600 dark:text-rose-400">{{ row.error.code }}</div>
+                  <div class="line-clamp-2 text-slate-500 dark:text-zinc-400">{{ errorHint(row.error) }}</div>
+                </div>
+              </el-tooltip>
+            </template>
           </el-table-column>
           <el-table-column label="" width="220" fixed="right" align="right">
             <template #default="{ row }">

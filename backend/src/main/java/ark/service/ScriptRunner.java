@@ -156,7 +156,7 @@ public class ScriptRunner {
         }
         if (blocked > 0) {
             fresh.setStatus(ScriptProject.Status.PAUSED);
-            List<String> blockedCodes = refs.values().stream().filter(this::isBlocked).map(ScriptReference::getCode)
+            List<String> blockedCodes = refs.values().stream().filter(check::blocked).map(ScriptReference::getCode)
                     .filter(missingCodes::contains).sorted().toList();
             if (!blockedCodes.isEmpty()) {
                 String tos = assetLibrary.tosUnavailable();
@@ -196,9 +196,14 @@ public class ScriptRunner {
         private final Map<String, ScriptReference> refs;
         private final Map<String, Boolean> noFile = new java.util.HashMap<>();
         private final Map<String, Boolean> unusable = new java.util.HashMap<>();
+        /** File của mọi mã, tải một lần bằng một truy vấn (thay vì một truy vấn cho mỗi mã). */
+        private final Map<Long, GeneratedFile> files;
 
         RefCheck(Map<String, ScriptReference> refs) {
             this.refs = refs;
+            List<Long> ids = refs.values().stream().map(ScriptReference::getFileId).filter(java.util.Objects::nonNull).distinct().toList();
+            this.files = ids.isEmpty() ? Map.of() : fileLibrary.existing(ids).stream()
+                    .collect(Collectors.toMap(GeneratedFile::getId, f -> f, (a, b) -> a));
         }
 
         public List<String> missing(ScriptClip c) {
@@ -212,21 +217,31 @@ public class ScriptRunner {
             return noFile.computeIfAbsent(code, k -> {
                 ScriptReference r = refs.get(k);
                 // Đang tạo / chờ duyệt ảnh mới → chưa dùng ảnh cũ
-                return r == null || r.getFileId() == null || r.isAwaitingImage() || !fileUsable(r.getFileId());
+                return r == null || r.getFileId() == null || r.isAwaitingImage() || !fileUsable(files.get(r.getFileId()));
             });
         }
 
         /** Thiếu ảnh hoặc ảnh đang bị chặn. */
         public boolean unusable(String code) {
-            return unusable.computeIfAbsent(code, k -> noFile(k) || isBlocked(refs.get(k)));
+            return unusable.computeIfAbsent(code, k -> noFile(k) || isBlocked(refs.get(k), files.get(refs.get(k).getFileId())));
+        }
+
+        /** Như {@link ScriptRunner#isBlocked(ScriptReference)} nhưng dùng file đã tải sẵn. */
+        public boolean blocked(ScriptReference r) {
+            return isBlocked(r, r.getFileId() == null ? null : files.get(r.getFileId()));
         }
     }
 
     /** Ảnh bị chặn và chưa được đẩy Virtual Portrait (asset Active thì gửi asset:// → không còn bị chặn). */
     public boolean isBlocked(ScriptReference r) {
         if (r.getBlockedReason() == null) return false;
+        return isBlocked(r, r.getFileId() == null ? null : fileLibrary.existing(List.of(r.getFileId())).stream().findFirst().orElse(null));
+    }
+
+    private boolean isBlocked(ScriptReference r, GeneratedFile f) {
+        if (r.getBlockedReason() == null) return false;
         try {
-            GeneratedFile f = fileLibrary.get(r.getFileId());
+            if (f == null) return true;
             if (f.getAssetId() != null && "Active".equals(f.getAssetStatus())) return false;
             if (assetLibrary.cachedAssetFor(r.getCode()) != null) return false; // có asset VP trùng tên → gắn khi gửi clip
             if (r.getBlockedReason().startsWith(VP_FAILED)) return true;
@@ -252,8 +267,16 @@ public class ScriptRunner {
     /** Ảnh dùng được: asset Active hoặc file còn trên máy. */
     public boolean fileUsable(Long fileId) {
         try {
-            GeneratedFile f = fileLibrary.get(fileId);
-            if (f.getAssetId() != null && "Active".equals(f.getAssetStatus())) return true;
+            return fileUsable(fileLibrary.get(fileId));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean fileUsable(GeneratedFile f) {
+        if (f == null) return false;
+        if (f.getAssetId() != null && "Active".equals(f.getAssetStatus())) return true;
+        try {
             return Files.isRegularFile(fileLibrary.pathOf(f));
         } catch (Exception e) {
             return false;
@@ -402,12 +425,13 @@ public class ScriptRunner {
                     if (cancelRequested.contains(clipId)) throw new InterruptedException("cancel");
                     String why = VP_FAILED + ": " + (f.getAssetError() == null ? "asset Failed" : f.getAssetError());
                     r.setBlockedReason(why.length() > 1000 ? why.substring(0, 1000) : why);
-                    references.save(r);
+                    // Chỉ ghi cột blockedReason: entity r đọc từ đầu lượt gửi, người dùng có thể vừa gán ảnh khác
+                    references.setBlockedReason(r.getId(), r.getBlockedReason());
                     throw new RefBlocked("Chờ ảnh: " + code + " – " + why + ". Thay ảnh khác hoặc bấm “Tạo lại AI”.");
                 }
                 if (r.getBlockedReason() != null) {
                     r.setBlockedReason(null);
-                    references.save(r);
+                    references.setBlockedReason(r.getId(), null);
                 }
             }
             images.add(imageRef(f, code));
@@ -463,6 +487,11 @@ public class ScriptRunner {
         }
         if (e instanceof TaskFailed tf) {
             String code = tf.code.toLowerCase(Locale.ROOT);
+            if (isOutputModeration(tf.code)) {
+                // Kiểm duyệt video / audio ĐẦU RA: mỗi lần tạo cho kết quả khác → gửi task mới, tính 1 lần thử
+                outputModeration(clipId, project, msg, tf.code);
+                return;
+            }
             if (code.contains("sensitive") || code.contains("privacy") || code.contains("risk") || code.contains("policy")
                     || code.contains("invalidparameter") || code.contains("inputimage") || code.contains("inputtext")) {
                 finish(clipId, ScriptClip.Status.FAILED, "Bị từ chối: " + msg + hint(code), true);
@@ -573,10 +602,8 @@ public class ScriptRunner {
             if (i >= 1 && i <= refList.size() && !codes.contains(refList.get(i - 1))) codes.add(refList.get(i - 1));
         }
         for (String code : codes) {
-            references.findByProjectIdAndCode(c.getProjectId(), code).ifPresent(r -> {
-                r.setBlockedReason("Ảnh có mặt người thật – BytePlus chặn khi gửi trực tiếp (clip " + c.getCode() + ")");
-                references.save(r);
-            });
+            references.findByProjectIdAndCode(c.getProjectId(), code).ifPresent(r -> references.setBlockedReason(r.getId(),
+                    "Ảnh có mặt người thật – BytePlus chặn khi gửi trực tiếp (clip " + c.getCode() + ")"));
         }
         return codes;
     }
@@ -593,6 +620,42 @@ public class ScriptRunner {
             return " → ảnh có mặt người thật: đẩy ảnh nhân vật vào Virtual Portrait để dùng asset:// rồi làm lại clip";
         }
         return "";
+    }
+
+    /**
+     * OutputVideoSensitiveContentDetected / OutputAudioSensitiveContentDetected: video hoặc audio vừa tạo bị kiểm duyệt chặn.
+     * Kết quả mỗi lần tạo khác nhau nên thử lại có thể qua; bản quyền (.PolicyViolation) hay giả mạo giấy tờ (.DeepFake)
+     * thì lặp lại y hệt → không tính là kiểm duyệt ngẫu nhiên.
+     */
+    static boolean isOutputModeration(String code) {
+        if (code == null) return false;
+        String c = code.toLowerCase(Locale.ROOT);
+        return (c.startsWith("outputvideosensitivecontentdetected") || c.startsWith("outputaudiosensitivecontentdetected"))
+                && !c.contains(".");
+    }
+
+    /** Gợi ý sửa khi kiểm duyệt đầu ra chặn mãi. */
+    static String outputModerationHint(String code) {
+        boolean audio = code != null && code.toLowerCase(Locale.ROOT).startsWith("outputaudio");
+        return audio
+                ? " → audio tạo ra bị chặn: sửa lời thoại / mô tả âm thanh trong prompt, hoặc tắt “Tạo âm thanh” trong Cấu hình chạy rồi làm lại clip"
+                : " → video tạo ra bị kiểm duyệt chặn: làm dịu chi tiết bạo lực / hở hang / nhạy cảm trong prompt (hoặc ghi chú khi Làm lại) rồi chạy lại";
+    }
+
+    private void outputModeration(Long clipId, ScriptProject project, String msg, String code) {
+        int max = project == null ? 3 : project.getMaxAttempts();
+        updateClip(clipId, c -> {
+            c.setAttempt(c.getAttempt() + 1);
+            c.setTaskId(null);
+            if (c.getAttempt() < max) {
+                c.setStatus(ScriptClip.Status.PENDING);
+                c.setError("Kết quả bị kiểm duyệt chặn (lần " + c.getAttempt() + "/" + max + "), tạo lại task mới: " + msg);
+            } else {
+                c.setStatus(ScriptClip.Status.FAILED);
+                c.setError("Bị kiểm duyệt chặn cả " + max + " lần: " + msg + outputModerationHint(code));
+                c.setFinishedAt(Instant.now());
+            }
+        });
     }
 
     private void transient_(Long clipId, ScriptProject project, String msg, boolean taskDead) {

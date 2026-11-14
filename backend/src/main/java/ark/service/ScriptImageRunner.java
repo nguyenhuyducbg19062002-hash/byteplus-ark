@@ -82,8 +82,11 @@ public class ScriptImageRunner {
         return lastLog.get(refId);
     }
 
+    /** Model ảnh của dự án; model đã bỏ khỏi danh sách (dự án lưu từ bản cũ) → dùng mặc định thay vì lỗi mọi màn hình. */
     public static Models.ImageModel model(ScriptProject p) {
-        return Models.image(p.getImageModel() == null ? DEFAULT_IMAGE_MODEL : p.getImageModel());
+        String id = p.getImageModel() == null ? DEFAULT_IMAGE_MODEL : p.getImageModel();
+        for (Models.ImageModel m : Models.IMAGE) if (m.id().equals(id)) return m;
+        return Models.image(DEFAULT_IMAGE_MODEL);
     }
 
     @Scheduled(fixedDelay = 1500, initialDelay = 6000)
@@ -171,7 +174,18 @@ public class ScriptImageRunner {
                 });
                 if (oldPending != null && !oldPending.equals(f.getId())) deleteFileQuietly(oldPending);
                 say.accept("Đã tạo ảnh " + target.getFileName() + " – chờ duyệt");
-                if (project.isAutoApproveImages()) approve(refId);
+                if (project.isAutoApproveImages()) {
+                    // Ảnh đã tạo xong: tự duyệt lỗi (vd không chép được vào thư mục riêng) không được biến mã thành “Tạo ảnh lỗi”
+                    try {
+                        approve(refId);
+                    } catch (Exception ex) {
+                        String why = GlobalExceptionHandler.describe(ex);
+                        log.warn("Auto-approve reference {} failed: {}", refId, why);
+                        update(refId, x -> {
+                            if (x.getImageError() == null) x.setImageError("Tự duyệt lỗi – bấm Duyệt lại: " + why);
+                        });
+                    }
+                }
             } finally {
                 deleteQuietly(tmp);
             }

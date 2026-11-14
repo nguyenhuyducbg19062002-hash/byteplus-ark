@@ -32,6 +32,12 @@ public interface ScriptReferenceRepository extends JpaRepository<ScriptReference
             + "where r.id = :id and r.imageStatus = :from")
     int moveImageIf(Long id, ScriptReference.ImageStatus from, ScriptReference.ImageStatus to);
 
+    /** Chỉ ghi lý do chặn (không lưu cả entity → không ghi đè ảnh / trạng thái người dùng vừa đổi). */
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @org.springframework.data.jpa.repository.Query("update ScriptReference r set r.blockedReason = :reason where r.id = :id")
+    int setBlockedReason(Long id, String reason);
+
     @Modifying
     @Transactional
     void deleteByProjectId(Long projectId);

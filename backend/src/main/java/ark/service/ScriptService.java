@@ -313,13 +313,22 @@ public class ScriptService {
     public List<ScriptReferenceDto> references(Long id) {
         Map<String, Integer> used = new LinkedHashMap<>();
         for (ScriptClip c : clips.findByProjectIdOrderBySeq(id)) for (String r : c.refList()) used.merge(r, 1, Integer::sum);
-        return references.findByProjectIdOrderByKindAscCodeAsc(id).stream()
+        List<ScriptReference> list = references.findByProjectIdOrderByKindAscCodeAsc(id);
+        Map<String, ScriptReference> byCode = list.stream().collect(Collectors.toMap(ScriptReference::getCode, r -> r, (a, b) -> a));
+        ScriptRunner.RefCheck check = runner.refCheck(byCode);
+        // Một truy vấn cho mọi file (ảnh đã gán + ảnh chờ duyệt) thay vì hai truy vấn mỗi mã
+        List<Long> ids = list.stream().flatMap(r -> java.util.stream.Stream.of(r.getFileId(), r.getPendingFileId()))
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        Map<Long, GeneratedFileDto> dtos = ids.isEmpty() ? Map.of() : files.findByIdIn(ids).stream()
+                .collect(Collectors.toMap(GeneratedFile::getId, fileLibrary::toDto, (a, b) -> a));
+        return list.stream()
                 .map(r -> new ScriptReferenceDto(r.getId(), r.getCode(), r.getKind(), r.getName(), r.getDescription(),
-                        fileDto(r.getFileId()), used.getOrDefault(r.getCode(), 0), r.getImagePrompt(), r.isPromptEdited(),
-                        r.getIdentityCode(), r.getImageStatus(),
+                        r.getFileId() == null ? null : dtos.get(r.getFileId()), used.getOrDefault(r.getCode(), 0),
+                        r.getImagePrompt(), r.isPromptEdited(), r.getIdentityCode(), r.getImageStatus(),
                         r.getImageStatus() == ScriptReference.ImageStatus.GENERATING && imageRunner.lastLog(r.getId()) != null
                                 ? imageRunner.lastLog(r.getId()) : r.getImageError(),
-                        runner.isBlocked(r) ? r.getBlockedReason() : null, fileDto(r.getPendingFileId())))
+                        check.blocked(r) ? r.getBlockedReason() : null,
+                        r.getPendingFileId() == null ? null : dtos.get(r.getPendingFileId())))
                 .toList();
     }
 
