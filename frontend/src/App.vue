@@ -5,6 +5,11 @@ import { routes } from './router'
 import { useSettingsStore } from './stores/settings'
 import { useUiStore } from './stores/ui'
 import StatusBadge from './components/StatusBadge.vue'
+import ChristmasSnow from './components/ChristmasSnow.vue'
+
+/** Dây đèn Giáng sinh: màu bóng lặp lại, mỗi bóng nhấp nháy lệch nhịp. */
+const BULBS = ['#ef4444', '#facc15', '#22c55e', '#38bdf8', '#f472b6']
+const lights = Array.from({ length: 48 }, (_, i) => ({ color: BULBS[i % BULBS.length], delay: `${(i * 0.37) % 2.4}s` }))
 
 const route = useRoute()
 const settings = useSettingsStore()
@@ -28,15 +33,21 @@ onMounted(() => {
 
 <template>
   <div class="flex h-full">
+    <ChristmasSnow v-if="ui.christmas" />
     <!-- Sidebar -->
     <aside class="flex w-60 shrink-0 flex-col border-r border-slate-200/70 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/60">
       <div class="flex items-center gap-3 px-5 py-5">
-        <div class="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white shadow-md">
-          <el-icon :size="18"><MagicStick /></el-icon>
+        <div
+          class="relative grid h-9 w-9 place-items-center rounded-xl text-white shadow-md"
+          :class="ui.christmas ? 'bg-gradient-to-br from-red-600 to-emerald-600' : 'bg-gradient-to-br from-indigo-500 to-fuchsia-500'"
+        >
+          <span v-if="ui.christmas" class="text-lg leading-none">🎄</span>
+          <el-icon v-else :size="18"><MagicStick /></el-icon>
         </div>
         <div>
           <div class="text-sm font-semibold leading-tight">Ark Studio</div>
-          <div class="text-[11px] text-slate-500 dark:text-zinc-400">Seedream · Seedance</div>
+          <div v-if="ui.christmas" class="xmas-greeting text-[11px] font-medium">Giáng sinh an lành ✨</div>
+          <div v-else class="text-[11px] text-slate-500 dark:text-zinc-400">Seedream · Seedance</div>
         </div>
       </div>
 
@@ -71,6 +82,16 @@ onMounted(() => {
           <StatusBadge v-if="settings.autoPush" status="info" label="Tự đẩy VP" />
         </div>
         <button
+          class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition"
+          :class="ui.christmas ? 'bg-red-600/20 text-red-100 ring-1 ring-red-400/40 hover:bg-red-600/30' : 'text-slate-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800'"
+          :title="ui.christmas ? 'Tắt hiệu ứng Giáng sinh, về giao diện tối' : 'Bật nền Giáng sinh + tuyết rơi'"
+          @click="ui.toggleChristmas()"
+        >
+          <span>🎄 Giáng sinh: {{ ui.christmas ? 'Bật' : 'Tắt' }}</span>
+          <el-switch :model-value="ui.christmas" size="small" style="--el-switch-on-color: #dc2626" @click.stop @change="ui.toggleChristmas()" />
+        </button>
+        <button
+          v-if="!ui.christmas"
           class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
           @click="ui.toggleDark()"
         >
@@ -81,7 +102,10 @@ onMounted(() => {
     </aside>
 
     <!-- Content -->
-    <main class="min-w-0 flex-1 overflow-y-auto">
+    <main class="relative min-w-0 flex-1 overflow-y-auto">
+      <div v-if="ui.christmas" class="xmas-lights" aria-hidden="true">
+        <span v-for="(b, i) in lights" :key="i" :style="{ '--bulb': b.color, animationDelay: b.delay }" />
+      </div>
       <router-view v-slot="{ Component }">
         <keep-alive>
           <component :is="Component" />

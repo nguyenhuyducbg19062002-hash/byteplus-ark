@@ -29,3 +29,97 @@ body {
 @utility field-label {
   @apply mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-200;
 }
+
+
+/* ---------- Chủ đề Giáng sinh (class .christmas trên <html>, luôn kèm .dark) ---------- */
+.christmas body {
+  background: #7f1d1d url('/christmas-bg.jpg') center / cover fixed no-repeat;
+}
+/* Lớp phủ tối nhẹ để chữ và bảng dễ đọc trên nền đỏ */
+.christmas body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgb(20 4 6 / 0.35), rgb(20 4 6 / 0.55));
+}
+.christmas #app {
+  position: relative;
+}
+.christmas aside {
+  background: rgb(24 6 8 / 0.72) !important;
+  border-color: rgb(248 113 113 / 0.18) !important;
+  backdrop-filter: blur(10px);
+}
+.christmas .card {
+  background: rgb(24 24 27 / 0.84);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 0.35);
+}
+.christmas .el-table,
+.christmas .el-table tr,
+.christmas .el-table th.el-table__cell {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgb(39 39 42 / 0.6);
+  --el-table-expanded-cell-bg-color: rgb(24 24 27 / 0.6);
+}
+.xmas-greeting {
+  background: linear-gradient(90deg, #fca5a5, #fde68a, #86efac, #fca5a5);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: xmas-shine 6s linear infinite;
+}
+@keyframes xmas-shine {
+  to {
+    background-position: 300% 0;
+  }
+}
+/* Dây đèn nhấp nháy dọc mép trên vùng nội dung */
+.xmas-lights {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  height: 22px;
+  padding: 0 12px;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(ellipse 60% 12px at 50% 0, rgb(0 0 0 / 0.25), transparent);
+}
+.xmas-lights::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  border-top: 1.5px solid rgb(20 83 45 / 0.9);
+}
+.xmas-lights span {
+  position: relative;
+  top: 5px;
+  width: 7px;
+  height: 11px;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  background: var(--bulb);
+  box-shadow: 0 0 8px 2px var(--bulb);
+  animation: xmas-twinkle 2.4s ease-in-out infinite;
+}
+@keyframes xmas-twinkle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+    box-shadow: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xmas-lights span,
+  .xmas-greeting {
+    animation: none;
+  }
+}
