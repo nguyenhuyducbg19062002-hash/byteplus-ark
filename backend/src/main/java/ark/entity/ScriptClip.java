@@ -93,6 +93,14 @@ public class ScriptClip {
     @Column(length = 2000)
     private String error;
 
+    /**
+     * Clip bị kiểm duyệt chặn: model ngôn ngữ phân tích bằng tiếng Việt (JSON: category, summary, issues[quote, vi, reason, fix],
+     * fixedPrompt). Xoá khi chạy lại clip.
+     */
+    @Lob
+    @Column(columnDefinition = "CLOB")
+    private String blockAnalysis;
+
     /** Video kết quả (GeneratedFile.id). */
     private Long fileId;
 

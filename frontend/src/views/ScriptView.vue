@@ -246,6 +246,18 @@ async function saveClip(row, run) {
 }
 const runClip = (row) => act('clip' + row.id, () => api.post(`/script-clips/${row.id}/run`))
 const cancelClip = (row) => act('clip' + row.id, () => api.post(`/script-clips/${row.id}/cancel`))
+/** AI (Dola-Seed) chỉ ra bằng tiếng Việt vì sao clip bị kiểm duyệt chặn: loại vi phạm, đoạn nghi vấn, prompt đã sửa. */
+async function analyzeBlock(row) {
+  await act('analyze' + row.id, () => api.post(`/script-clips/${row.id}/analyze-block`, null, { timeout: 200000 }))
+  await clips.run()
+}
+/** Đưa prompt AI đã sửa vào ô soạn – xem lại rồi bấm “Lưu & tạo lại”. */
+function useFixedPrompt(row) {
+  if (!drafts[row.id]) drafts[row.id] = { prompt: row.prompt, duration: row.duration }
+  drafts[row.id].prompt = row.blockAnalysis.fixedPrompt
+  ElMessage.success('Đã đưa prompt đã sửa vào ô soạn – xem lại rồi bấm “Lưu & tạo lại”')
+}
+const isBlockError = (row) => row.status === 'FAILED' && /SensitiveContent|kiểm duyệt|Bị từ chối/i.test(row.error || '')
 function search() {
   query.page = 1
   clips.run()
@@ -649,6 +661,30 @@ function downloadZip(what) {
                           <el-button size="small" :loading="busy === 'clip' + row.id" :disabled="row.status === 'GENERATING'" @click="saveClip(row, false)">Lưu</el-button>
                           <el-button size="small" type="primary" :loading="busy === 'clip' + row.id" :disabled="row.status === 'GENERATING'" @click="saveClip(row, true)">Lưu &amp; tạo lại</el-button>
                         </div>
+                        <div v-if="row.blockAnalysis || row.analyzing || isBlockError(row)" class="space-y-2 rounded-xl bg-rose-50 p-3 text-sm ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:ring-rose-500/30">
+                          <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="font-semibold text-rose-700 dark:text-rose-300">
+                              Vì sao bị chặn{{ row.blockAnalysis?.category ? ': ' + row.blockAnalysis.category : '' }}
+                            </div>
+                            <div class="flex gap-2">
+                              <el-button v-if="row.blockAnalysis?.fixedPrompt" size="small" type="primary" plain @click="useFixedPrompt(row)">Dùng prompt đã sửa</el-button>
+                              <el-button size="small" :loading="row.analyzing || busy === 'analyze' + row.id" @click="analyzeBlock(row)">
+                                {{ row.analyzing ? 'AI đang phân tích…' : row.blockAnalysis ? 'Phân tích lại' : 'Phân tích vì sao bị chặn' }}
+                              </el-button>
+                            </div>
+                          </div>
+                          <p v-if="row.blockAnalysis?.summary" class="text-slate-700 dark:text-zinc-200">{{ row.blockAnalysis.summary }}</p>
+                          <ol v-if="row.blockAnalysis?.issues?.length" class="space-y-2">
+                            <li v-for="(it, i) in row.blockAnalysis.issues" :key="i" class="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/60">
+                              <div class="text-xs text-slate-400">{{ i + 1 }}. Trong {{ it.where || 'prompt' }}</div>
+                              <mark class="rounded bg-rose-200/70 px-1 font-mono text-xs text-rose-900 dark:bg-rose-500/30 dark:text-rose-100">{{ it.quote }}</mark>
+                              <div v-if="it.vi" class="mt-1 text-xs italic text-slate-500 dark:text-zinc-400">“{{ it.vi }}”</div>
+                              <div v-if="it.reason" class="mt-1 text-xs text-slate-700 dark:text-zinc-200"><b>Lý do:</b> {{ it.reason }}</div>
+                              <div v-if="it.fix" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300"><b>Sửa thành:</b> {{ it.fix }}</div>
+                            </li>
+                          </ol>
+                          <p v-if="!row.blockAnalysis && !row.analyzing" class="hint">BytePlus không nói đoạn nào bị chặn – bấm nút để AI đọc prompt + lời thoại và chỉ ra bằng tiếng Việt.</p>
+                        </div>
                         <ul v-if="row.warnings.length" class="space-y-1 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                           <li v-for="w in row.warnings" :key="w">• {{ w }}</li>
                         </ul>
@@ -701,6 +737,8 @@ function downloadZip(what) {
                 </el-table-column>
                 <el-table-column label="Tiến độ / lỗi" min-width="240" show-overflow-tooltip>
                   <template #default="{ row }">
+                    <div v-if="row.blockAnalysis?.category" class="mb-0.5 text-xs font-semibold text-rose-700 dark:text-rose-300">⚠ Vi phạm: {{ row.blockAnalysis.category }} – bấm Chi tiết</div>
+                    <div v-else-if="row.analyzing" class="mb-0.5 text-xs text-amber-600">AI đang phân tích vì sao bị chặn…</div>
                     <span class="text-xs" :class="row.status === 'FAILED' ? 'text-rose-600' : 'text-slate-500'">{{ row.error }}</span>
                   </template>
                 </el-table-column>

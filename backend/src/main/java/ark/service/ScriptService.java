@@ -61,6 +61,7 @@ public class ScriptService {
     private final ScriptImageRunner imageRunner;
     private final AssetLibraryService assetLibrary;
     private final ScriptPromptWriter promptWriter;
+    private final ScriptBlockAnalyzer blockAnalyzer;
 
     // ---------- dự án ----------
 
@@ -274,6 +275,17 @@ public class ScriptService {
         c.setError(null);
         c.setFinishedAt(null);
         c.setRunPriority(priority);
+        c.setBlockAnalysis(null);
+    }
+
+    /** Model ngôn ngữ phân tích vì sao clip bị kiểm duyệt chặn (tiếng Việt: loại vi phạm, đoạn nghi vấn, prompt đã sửa). */
+    public ScriptClipDto analyzeBlock(Long clipId) throws Exception {
+        ScriptClip c = clip(clipId);
+        if (c.getStatus() != ScriptClip.Status.FAILED && c.getError() == null) {
+            throw new IllegalStateException("Clip " + c.getCode() + " không bị lỗi – không có gì để phân tích");
+        }
+        blockAnalyzer.analyzeNow(clipId);
+        return toDto(clip(clipId), runner.refCheck(refMap(c.getProjectId())));
     }
 
     // ---------- ảnh tham chiếu ----------
@@ -582,7 +594,17 @@ public class ScriptService {
                 .missingRefs(check.missing(c)).prompt(c.getPrompt()).promptVi(c.getPromptVi())
                 .dialogue(c.getDialogue()).note(c.getNote()).warnings(c.warningList()).status(c.getStatus())
                 .attempt(c.getAttempt()).taskId(c.getTaskId()).error(err).file(fileDto(c.getFileId()))
-                .startedAt(c.getStartedAt()).finishedAt(c.getFinishedAt()).build();
+                .startedAt(c.getStartedAt()).finishedAt(c.getFinishedAt())
+                .blockAnalysis(parseAnalysis(c.getBlockAnalysis())).analyzing(blockAnalyzer.isAnalyzing(c.getId())).build();
+    }
+
+    private static Object parseAnalysis(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return ark.integration.byteplus.Json.parse(json);
+        } catch (IllegalArgumentException e) {
+            return Map.of("summary", json);
+        }
     }
 
     private GeneratedFileDto fileDto(Long fileId) {

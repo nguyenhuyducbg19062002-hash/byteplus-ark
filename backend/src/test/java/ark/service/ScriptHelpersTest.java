@@ -29,6 +29,20 @@ class ScriptHelpersTest {
     }
 
     @Test
+    void blockAnalyzerFindsCodeAndSkipsImageProblems() {
+        assertEquals("OutputVideoSensitiveContentDetected", ScriptBlockAnalyzer.codeIn(
+                "Bị kiểm duyệt chặn cả 3 lần: Task failed: OutputVideoSensitiveContentDetected – The request failed"));
+        assertEquals("InputTextSensitiveContentDetected.PolicyViolation",
+                ScriptBlockAnalyzer.codeIn("Bị từ chối: InputTextSensitiveContentDetected.PolicyViolation: copyright"));
+        assertEquals(null, ScriptBlockAnalyzer.codeIn("Hết 3 lần thử: timeout"));
+        assertTrue(ScriptBlockAnalyzer.isContentBlock("OutputAudioSensitiveContentDetected"));
+        assertTrue(ScriptBlockAnalyzer.isContentBlock("InputTextSensitiveContentDetected"));
+        // ảnh có mặt người thật: lỗi do ảnh, không do chữ → không phân tích prompt
+        assertFalse(ScriptBlockAnalyzer.isContentBlock("InputImageSensitiveContentDetected.PrivacyInformation"));
+        assertFalse(ScriptBlockAnalyzer.isContentBlock("RateLimitExceeded"));
+    }
+
+    @Test
     void missingAssetsParsesIdsOnce() {
         String msg = "The specified asset asset-20261111-ab12-mh7gc is not found; "
                 + "the specified asset asset-20261111-cd34-xx9 is not found; asset asset-20261111-ab12-mh7gc is not found";

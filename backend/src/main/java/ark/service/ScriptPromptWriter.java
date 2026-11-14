@@ -62,15 +62,72 @@ public class ScriptPromptWriter {
         }
         user.append("\nWrite the final Seedream prompt now.");
 
+        String prompt = clean(chat(model, SYSTEM, user.toString(), 2000, 0.4));
+        if (prompt.isBlank()) throw new IllegalStateException("Model " + model.name() + " không trả về prompt – thử lại hoặc đổi model");
+        return prompt;
+    }
+
+    private static final String BLOCK_SYSTEM = """
+            Bạn là chuyên gia kiểm duyệt nội dung cho model tạo video Seedance (BytePlus). Một clip vừa bị hệ thống \
+            kiểm duyệt chặn. Hãy đọc prompt (tiếng Anh) và lời thoại, tìm CHÍNH XÁC các đoạn có khả năng gây chặn \
+            (bạo lực, máu me, vũ khí, tình dục / hở hang, trẻ em trong tình huống nhạy cảm, ma tuý, tự hại, thù ghét, \
+            chính trị, người nổi tiếng / thương hiệu / bản quyền, lời thoại tục tĩu hoặc đe doạ…).
+            Trả về DUY NHẤT một object JSON (không markdown, không giải thích ngoài JSON) theo mẫu:
+            {"category": "loại vi phạm chính, tiếng Việt, ngắn",
+             "summary": "1-2 câu tiếng Việt giải thích vì sao bị chặn",
+             "issues": [{"quote": "trích NGUYÊN VĂN đoạn trong prompt hoặc lời thoại", \
+            "where": "prompt" hoặc "lời thoại", "vi": "dịch đoạn đó sang tiếng Việt", \
+            "reason": "vì sao đoạn này dễ bị chặn, tiếng Việt", "fix": "cách viết lại đoạn này (tiếng Anh nếu là prompt)"}],
+             "fixedPrompt": "toàn bộ prompt tiếng Anh đã sửa: giữ nguyên cốt truyện, nhân vật, Image 1/Image 2…, \
+            máy quay, thời lượng; chỉ làm dịu các đoạn nghi vấn"}
+            Quy tắc: "quote" phải là chuỗi có thật trong văn bản được cung cấp; tối đa 6 issues, đoạn nguy cơ cao nhất trước. \
+            Nếu lỗi là về âm thanh (OutputAudio…) thì ưu tiên soi lời thoại và mô tả âm thanh. Nếu không thấy đoạn nào rõ ràng, \
+            issues để rỗng và nói rõ trong summary rằng có thể bị chặn ngẫu nhiên, nên thử tạo lại.
+            """;
+
+    /**
+     * Phân tích vì sao clip bị kiểm duyệt chặn: loại vi phạm, đoạn nghi vấn (trích nguyên văn + dịch + lý do), prompt đã sửa.
+     * @return chuỗi JSON (category, summary, issues[], fixedPrompt); model trả chữ thường thì gói thành {"summary": …}
+     */
+    public String explainBlock(ScriptProject project, String prompt, String dialogue, String errorCode, String errorMessage)
+            throws IOException, InterruptedException {
+        Models.TextModel model = Models.text(project.getPromptModel());
+        StringBuilder user = new StringBuilder();
+        user.append("Mã lỗi BytePlus: ").append(errorCode == null ? "?" : errorCode).append('\n');
+        if (errorMessage != null) {
+            user.append("Thông báo lỗi: ").append(errorMessage.length() > 600 ? errorMessage.substring(0, 600) : errorMessage).append('\n');
+        }
+        user.append("\nPROMPT gửi Seedance:\n").append(prompt == null ? "" : prompt).append('\n');
+        if (dialogue != null && !dialogue.isBlank()) user.append("\nLỜI THOẠI của clip:\n").append(dialogue).append('\n');
+        user.append("\nTrả về JSON theo mẫu.");
+        String raw = chat(model, BLOCK_SYSTEM, user.toString(), 4000, 0.2);
+        // Không dùng clean(): nó cắt 6000 ký tự và bỏ ngoặc kép – JSON có prompt đã sửa dài hơn thế
+        String text = raw == null ? "" : raw.replaceAll("(?s)<think>.*?</think>", "").trim();
+        int a = text.indexOf('{'), b = text.lastIndexOf('}');
+        if (a >= 0 && b > a) {
+            try {
+                Object parsed = Json.parse(text.substring(a, b + 1));
+                if (parsed instanceof Map) return Json.write(parsed);
+            } catch (IllegalArgumentException ignored) {
+                // không phải JSON hợp lệ → trả chữ thường bên dưới
+            }
+        }
+        if (text.isBlank()) throw new IllegalStateException("Model " + model.name() + " không trả về phân tích – thử lại");
+        return Json.write(Map.of("summary", text));
+    }
+
+    /** Gọi Chat API của model ngôn ngữ, trả về nội dung trả lời (chưa làm sạch). */
+    private String chat(Models.TextModel model, String system, String user, int maxTokens, double temperature)
+            throws IOException, InterruptedException {
         List<Map<String, Object>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", SYSTEM));
-        messages.add(Map.of("role", "user", "content", user.toString()));
+        messages.add(Map.of("role", "system", "content", system));
+        messages.add(Map.of("role", "user", "content", user));
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model.id());
         body.put("messages", messages);
-        body.put("max_tokens", 2000);
-        body.put("temperature", 0.4);
-        body.put("thinking", Map.of("type", "disabled")); // chỉ cần viết lại, không cần suy luận dài (nhanh + rẻ)
+        body.put("max_tokens", maxTokens);
+        body.put("temperature", temperature);
+        body.put("thinking", Map.of("type", "disabled")); // không cần suy luận dài (nhanh + rẻ)
 
         ArkClient client = ArkClient.from(config);
         Map<String, Object> res;
@@ -79,9 +136,9 @@ public class ScriptPromptWriter {
         } catch (ArkException e) {
             String code = e.code() == null ? "" : e.code().toLowerCase(Locale.ROOT);
             if (code.contains("modelnotopen")) {
-                throw new IllegalStateException("Tài khoản chưa bật model " + model.name() + " (" + model.id()
+                throw new IllegalStateException("Tài khoản chưa bật model ngôn ngữ " + model.name() + " (" + model.id()
                         + "). Cách sửa: console.byteplus.com → ModelArk → Model activation → tìm " + model.id()
-                        + " → Activate rồi bấm lại; hoặc mở “Cấu hình chạy” chọn model viết prompt khác đã bật → Lưu cấu hình.");
+                        + " → Activate rồi bấm lại.");
             }
             String msg = String.valueOf(e.getMessage()).toLowerCase(Locale.ROOT);
             if (e.status() == 400 && msg.contains("thinking")) { // model không nhận tham số thinking → gửi lại không có
@@ -91,10 +148,7 @@ public class ScriptPromptWriter {
                 throw e;
             }
         }
-        String text = Json.str(res, "choices", 0, "message", "content");
-        String prompt = clean(text);
-        if (prompt.isBlank()) throw new IllegalStateException("Model " + model.name() + " không trả về prompt – thử lại hoặc đổi model");
-        return prompt;
+        return Json.str(res, "choices", 0, "message", "content");
     }
 
     /** Bỏ phần suy nghĩ / markdown / ngoặc kép model có thể thêm vào. */

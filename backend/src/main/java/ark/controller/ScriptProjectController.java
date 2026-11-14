@@ -215,6 +215,12 @@ public class ScriptProjectController {
         return service.runClip(clipId);
     }
 
+    /** Clip bị kiểm duyệt chặn: AI chỉ ra bằng tiếng Việt vi phạm gì, đoạn nào, kèm prompt đã sửa. */
+    @PostMapping("/script-clips/{clipId}/analyze-block")
+    public ScriptClipDto analyzeBlock(@PathVariable Long clipId) throws Exception {
+        return service.analyzeBlock(clipId);
+    }
+
     @PostMapping("/script-clips/{clipId}/cancel")
     public ScriptClipDto cancelClip(@PathVariable Long clipId) {
         return service.cancelClip(clipId);

@@ -54,6 +54,12 @@ public interface ScriptClipRepository extends JpaRepository<ScriptClip, Long> {
         return moveIf(id, ScriptClip.Status.PENDING, ScriptClip.Status.CANCELLED, msg, null, now);
     }
 
+    /** Chỉ ghi phân tích vì sao bị chặn (không lưu cả entity → không đè trạng thái bộ chạy vừa đổi). */
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("update ScriptClip c set c.blockAnalysis = :analysis where c.id = :id")
+    int setBlockAnalysis(Long id, String analysis);
+
     @Modifying
     @Transactional
     void deleteByProjectId(Long projectId);

@@ -12,4 +12,6 @@ public record ScriptClipDto(Long id, String code, int seq, String sceneTitle, St
                             List<String> refCodes, List<String> missingRefs, String prompt, String promptVi,
                             String dialogue, String note, List<String> warnings, ScriptClip.Status status,
                             int attempt, String taskId, String error, GeneratedFileDto file,
-                            Instant startedAt, Instant finishedAt) {}
+                            Instant startedAt, Instant finishedAt,
+                            /** Phân tích vì sao bị chặn (category, summary, issues, fixedPrompt) – null nếu chưa có. */
+                            Object blockAnalysis, boolean analyzing) {}

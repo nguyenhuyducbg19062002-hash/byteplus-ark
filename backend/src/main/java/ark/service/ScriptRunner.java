@@ -65,6 +65,7 @@ public class ScriptRunner {
     private final ScriptReferenceRepository references;
     private final FileLibraryService fileLibrary;
     private final AssetLibraryService assetLibrary;
+    private final ScriptBlockAnalyzer blockAnalyzer;
 
     /** Tiền tố lý do chặn khi chính Virtual Portrait từ chối ảnh → cần người thay ảnh. */
     public static final String VP_FAILED = "Virtual Portrait từ chối ảnh";
@@ -495,6 +496,7 @@ public class ScriptRunner {
             if (code.contains("sensitive") || code.contains("privacy") || code.contains("risk") || code.contains("policy")
                     || code.contains("invalidparameter") || code.contains("inputimage") || code.contains("inputtext")) {
                 finish(clipId, ScriptClip.Status.FAILED, "Bị từ chối: " + msg + hint(code), true);
+                blockAnalyzer.analyzeLater(clipId, tf.code, msg);
             } else {
                 transient_(clipId, project, msg, true);
             }
@@ -538,6 +540,7 @@ public class ScriptRunner {
                 }
             }
             finish(clipId, ScriptClip.Status.FAILED, msg + hint(code), true);
+            blockAnalyzer.analyzeLater(clipId, ae.code(), msg);
             return;
         }
         if (e instanceof IllegalStateException) { // chưa có API key…
@@ -656,6 +659,9 @@ public class ScriptRunner {
                 c.setFinishedAt(Instant.now());
             }
         });
+        if (clips.findById(clipId).map(c -> c.getStatus() == ScriptClip.Status.FAILED).orElse(false)) {
+            blockAnalyzer.analyzeLater(clipId, code, msg); // chặn hẳn → chỉ ra đoạn nghi vấn bằng tiếng Việt
+        }
     }
 
     private void transient_(Long clipId, ScriptProject project, String msg, boolean taskDead) {
