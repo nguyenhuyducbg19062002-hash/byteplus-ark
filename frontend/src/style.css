@@ -31,64 +31,88 @@ body {
 }
 
 
-/* ---------- Chủ đề Giáng sinh (class .christmas trên <html>, luôn kèm .dark) ---------- */
+/* ---------- Chủ đề Giáng sinh (class .christmas trên <html>) ----------
+ * Nền đỏ + tuyết; khung nội dung sáng màu kem, điểm nhấn xanh lá – màu đối xứng (bổ túc) của đỏ trên vòng màu.
+ * Tắt chủ đề thì về giao diện tối. */
 .christmas body {
   background: #7f1d1d url('/christmas-bg.jpg') center / cover fixed no-repeat;
 }
-/* Lớp phủ rất nhẹ – chỉ đủ để chữ trắng nổi trên nền đỏ, giữ màu nền tươi */
+/* Lớp phủ rất nhẹ cho nền đỏ dịu mắt hơn */
 .christmas body::before {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(180deg, rgb(40 6 10 / 0.08), rgb(40 6 10 / 0.22));
+  background: linear-gradient(180deg, rgb(40 6 10 / 0.05), rgb(40 6 10 / 0.18));
 }
-/* Nội dung nằm trên tuyết (tuyết z-index âm trong #app) → tuyết không rơi đè lên chữ, vẫn thấy qua khung kính */
+/* Nội dung nằm trên tuyết (tuyết z-index âm trong #app) → tuyết không rơi đè lên chữ */
 .christmas #app {
   position: relative;
   z-index: 2;
 }
-.christmas {
-  /* Ô nhập, chọn, ô soạn prompt của Element Plus: kính mờ thay vì đen đặc */
-  --el-fill-color-blank: rgb(30 6 10 / 0.35);
-  --el-fill-color-light: rgb(255 255 255 / 0.08);
-  --el-fill-color-lighter: rgb(255 255 255 / 0.05);
-  --el-border-color: rgb(254 202 202 / 0.22);
-  --el-border-color-light: rgb(254 202 202 / 0.16);
-  --el-border-color-lighter: rgb(254 202 202 / 0.12);
-  --el-text-color-regular: #fef2f2;
-  --el-text-color-secondary: #fecaca;
-  --el-text-color-placeholder: rgb(254 226 226 / 0.6);
+html.christmas {
+  /* Mọi điểm nhấn tím (indigo) của app → xanh lá (emerald) */
+  --color-indigo-50: #ecfdf5;
+  --color-indigo-100: #d1fae5;
+  --color-indigo-200: #a7f3d0;
+  --color-indigo-300: #6ee7b7;
+  --color-indigo-400: #34d399;
+  --color-indigo-500: #10b981;
+  --color-indigo-600: #059669;
+  --color-indigo-700: #047857;
+  --color-indigo-800: #065f46;
+  --color-indigo-900: #064e3b;
+  /* Nút chính, tab, ô chọn của Element Plus → xanh lá */
+  --el-color-primary: #059669;
+  --el-color-primary-light-3: #50b896;
+  --el-color-primary-light-5: #82cbb4;
+  --el-color-primary-light-7: #b4e0d2;
+  --el-color-primary-light-8: #cdeae1;
+  --el-color-primary-light-9: #e6f5f0;
+  --el-color-primary-dark-2: #047857;
 }
 .christmas aside {
-  background: rgb(110 14 22 / 0.45) !important;
-  border-color: rgb(254 202 202 / 0.18) !important;
+  background: rgb(255 252 247 / 0.88) !important;
+  border-color: rgb(16 185 129 / 0.25) !important;
   backdrop-filter: blur(12px);
 }
+/* Khung nội dung: màu kem sáng, viền xanh lá nhạt */
 .christmas .card {
-  background: rgb(120 16 24 / 0.55);
-  backdrop-filter: blur(10px) saturate(1.2);
-  box-shadow: 0 8px 30px rgb(60 0 8 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.08);
-  --tw-ring-color: rgb(254 202 202 / 0.2);
+  background: rgb(255 253 249 / 0.97);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 0 1px rgb(110 231 183 / 0.55), 0 12px 32px rgb(60 0 8 / 0.28);
 }
 .christmas .el-table,
 .christmas .el-table tr,
 .christmas .el-table th.el-table__cell {
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
-  --el-table-header-bg-color: rgb(255 255 255 / 0.06);
-  --el-table-expanded-cell-bg-color: rgb(40 6 10 / 0.25);
-  --el-table-row-hover-bg-color: rgb(255 255 255 / 0.07);
-  --el-table-border-color: rgb(254 202 202 / 0.14);
+  --el-table-header-bg-color: rgb(236 253 245 / 0.85);
+  --el-table-row-hover-bg-color: rgb(236 253 245 / 0.9);
+  --el-table-expanded-cell-bg-color: rgb(255 255 255 / 0.6);
+  --el-table-border-color: rgb(167 243 208 / 0.6);
 }
-/* Chữ phụ (slate / zinc 400–500) sáng hơn một chút trên nền đỏ */
-.christmas .text-slate-400,
-.christmas .text-slate-500,
-.christmas .dark\:text-zinc-400 {
-  color: rgb(254 226 226 / 0.75);
+.christmas .el-tabs__item.is-active,
+.christmas .el-tabs__item:hover {
+  color: #047857;
+}
+/* Tiêu đề trang nằm thẳng trên nền đỏ → chữ trắng */
+.christmas .page-header h1 {
+  color: #fff;
+  text-shadow: 0 1px 6px rgb(60 0 8 / 0.5);
+}
+/* Chữ ghi chú / tổng số nằm thẳng trên nền đỏ (ngoài khung) → trắng */
+.christmas .hint:not(.card *),
+.christmas .el-pagination__total:not(.card *) {
+  color: rgb(255 241 242 / 0.9);
+  text-shadow: 0 1px 4px rgb(60 0 8 / 0.5);
+}
+.christmas .page-header p {
+  color: rgb(255 241 242 / 0.88);
+  text-shadow: 0 1px 4px rgb(60 0 8 / 0.5);
 }
 .xmas-greeting {
-  background: linear-gradient(90deg, #fca5a5, #fde68a, #86efac, #fca5a5);
+  background: linear-gradient(90deg, #dc2626, #d97706, #059669, #dc2626);
   background-size: 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;

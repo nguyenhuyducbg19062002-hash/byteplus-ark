@@ -3,7 +3,7 @@ defineProps({ title: String, subtitle: String, icon: String })
 </script>
 
 <template>
-  <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <header class="page-header mb-6 flex flex-wrap items-end justify-between gap-4">
     <div class="flex items-center gap-3">
       <div v-if="icon" class="grid h-10 w-10 place-items-center rounded-xl bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200/70 dark:bg-zinc-800 dark:text-indigo-300 dark:ring-zinc-700">
         <el-icon :size="20"><component :is="icon" /></el-icon>

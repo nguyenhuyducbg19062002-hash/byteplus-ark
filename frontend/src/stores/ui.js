@@ -23,14 +23,14 @@ function readDark() {
 
 /**
  * Giao diện sáng / tối (class .dark trên <html>, dùng chung cho Tailwind và Element Plus)
- * và chủ đề Giáng sinh (class .christmas: nền đỏ + tuyết rơi, luôn dùng tông tối). Mặc định bật Giáng sinh.
+ * và chủ đề Giáng sinh (class .christmas: nền đỏ + tuyết rơi, khung sáng màu kem – xanh lá). Mặc định bật Giáng sinh.
  */
 export const useUiStore = defineStore('ui', {
   state: () => ({ dark: readDark(), christmas: read('ark-christmas') !== '0' }),
   actions: {
     apply() {
       const el = document.documentElement
-      el.classList.toggle('dark', this.dark || this.christmas)
+      el.classList.toggle('dark', this.dark && !this.christmas)
       el.classList.toggle('christmas', this.christmas)
     },
     toggleDark() {
