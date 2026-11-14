@@ -582,13 +582,6 @@ function downloadZip(what) {
                     <el-option v-for="x in imageModel?.sizes || []" :key="x" :label="x" :value="x" />
                   </el-select>
                 </div>
-                <div class="sm:col-span-2">
-                  <label class="field-label">Model viết prompt ảnh (Language)</label>
-                  <el-select v-model="settings.promptModel" class="w-full">
-                    <el-option v-for="m in models.text" :key="m.id" :label="m.name" :value="m.id" />
-                  </el-select>
-                  <p class="hint mt-1">Dola-Seed chỉ viết chữ: đọc mô tả trong Excel → viết prompt. Ảnh vẫn do model tạo ảnh bên trái vẽ.</p>
-                </div>
               </div>
               <div class="mt-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
                 <div class="sm:col-span-2">

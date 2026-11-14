@@ -76,11 +76,12 @@ public final class Models {
     }
 
     public static final List<ImageModel> IMAGE = List.of(
-            new ImageModel("dola-seedream-5-0-pro-260628", "Seedream 5.0 pro", List.of("1K", "1.5K", "2K"), "2K", false, 10, true),
-            new ImageModel("dola-seedream-5-0-flash-260915", "Seedream 5.0 flash", List.of("1K", "1.5K", "2K"), "2K", false, 10, true),
-            new ImageModel("seedream-5-0-260128", "Seedream 5.0 lite", List.of("2K", "3K", "4K", "2048x2048"), "2K", true, 14, true),
-            new ImageModel("seedream-4-5-251128", "Seedream 4.5", List.of("2K", "4K", "2048x2048"), "2K", true, 14, false),
-            new ImageModel("seedream-4-0-250828", "Seedream 4.0", List.of("1K", "2K", "4K", "2048x2048"), "2K", true, 14, false));
+            new ImageModel("dola-seedream-5-5-261028", "Dola-Seedream-5.5", List.of("1K", "1.5K", "2K"), "2K", false, 10, true),
+            new ImageModel("dola-seedream-5-0-flash-260915", "Dola-Seedream-5.0-flash", List.of("1K", "1.5K", "2K"), "2K", false, 10, true),
+            new ImageModel("dola-seedream-5-0-pro-260628", "Dola-Seedream-5.0-pro", List.of("1K", "1.5K", "2K"), "2K", false, 10, true),
+            new ImageModel("seedream-5-0-260128", "Dola-Seedream-5.0-lite", List.of("2K", "3K", "4K", "2048x2048"), "2K", true, 14, true),
+            new ImageModel("seedream-4-5-251128", "ByteDance-Seedream-4.5", List.of("2K", "4K", "2048x2048"), "2K", true, 14, false),
+            new ImageModel("seedream-4-0-250828", "ByteDance-Seedream-4.0", List.of("1K", "2K", "4K", "2048x2048"), "2K", true, 14, false));
 
     /** Model ngôn ngữ (tab Language trên console) – chỉ trả về chữ, dùng để viết prompt ảnh. */
     public record TextModel(String id, String name) {
@@ -96,9 +97,11 @@ public final class Models {
             new TextModel("seed-2-0-pro-260328", "Dola-Seed 2.0 pro"),
             new TextModel("dola-seed-2-1-turbo-260628", "Dola-Seed 2.1 turbo"));
 
+    /** Model không còn trong danh sách (vd dự án lưu từ bản cũ) → dùng model mặc định thay vì báo lỗi. */
     public static TextModel text(String id) {
         for (TextModel m : TEXT) if (m.id().equals(id)) return m;
-        throw new IllegalArgumentException("Model ngôn ngữ không rõ: " + id);
+        for (TextModel m : TEXT) if (m.id().equals(DEFAULT_TEXT_MODEL)) return m;
+        return TEXT.get(0);
     }
 
     public static VideoModel video(String id) {
