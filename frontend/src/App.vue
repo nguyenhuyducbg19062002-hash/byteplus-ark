@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import api from './api'
 import { useRoute } from 'vue-router'
 import { routes } from './router'
 import { useSettingsStore } from './stores/settings'
@@ -25,9 +26,12 @@ const groups = computed(() => {
   return out
 })
 
+/** Phiên bản app (hiện ở góc sidebar để kiểm tra đã cập nhật chưa). */
+const version = ref('')
 onMounted(() => {
   ui.apply()
   settings.load()
+  api.get('/app/ping', { silent: true }).then((r) => (version.value = r.version)).catch(() => {})
 })
 </script>
 
@@ -98,6 +102,7 @@ onMounted(() => {
           <span>{{ ui.dark ? 'Giao diện tối' : 'Giao diện sáng' }}</span>
           <el-icon><component :is="ui.dark ? 'Moon' : 'Sunny'" /></el-icon>
         </button>
+        <div v-if="version" class="px-3 text-[11px] text-slate-400 dark:text-zinc-500">Phiên bản {{ version }}</div>
       </div>
     </aside>
 

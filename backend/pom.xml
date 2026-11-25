@@ -13,7 +13,7 @@
 
     <groupId>ark</groupId>
     <artifactId>byteplus-ark-backend</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <name>BytePlus Ark Studio – backend</name>
     <description>REST API gọi BytePlus ModelArk (Seedream / Seedance / Virtual Portrait)</description>
 
@@ -100,6 +100,14 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <!-- META-INF/build-info.properties: phiên bản + thời điểm build (AppVersion) -->
+                    <execution>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
                 <configuration>
                     <excludes>
                         <exclude>

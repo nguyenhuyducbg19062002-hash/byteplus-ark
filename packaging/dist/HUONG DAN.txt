@@ -25,7 +25,8 @@ DÙNG
     hoặc chọn model khác.
 
 GỠ CÀI ĐẶT
-  Thoát app (khay > Thoát), xoá thư mục %LOCALAPPDATA%\Programs\Ark Studio và 2 icon "Ark Studio".
+  Thoát app (khay > Thoát), rồi vào Cài đặt Windows > Ứng dụng > Ark Studio > Gỡ cài đặt
+  (tự xoá thư mục app và 2 icon "Ark Studio" trên Desktop / Start Menu).
   Dữ liệu + key nằm ở %USERPROFILE%\.byteplus-ark (xoá nếu muốn bỏ hẳn).
 
 BÁO LỖI

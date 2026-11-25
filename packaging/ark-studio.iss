@@ -69,6 +69,17 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\runtime\bin\javaw.exe"; Para
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\runtime\bin\javaw.exe"; Parameters: "{#JavaArgs}"; WorkingDir: "{app}"; IconFilename: "{app}\ark.ico"; Comment: "Tạo ảnh / video BytePlus"; Tasks: desktopicon
 #endif
 
+#ifndef TestBuild
+[UninstallDelete]
+; Lối tắt có thể do install-desktop.ps1 tạo (build-desktop.bat / bản zip) – Inno không ghi nhận nên phải xoá rõ ràng,
+; kể cả khi lúc cài bỏ tick "Tạo biểu tượng trên Desktop". Xoá cả file còn sót trong thư mục cài (dữ liệu ở .byteplus-ark không bị đụng).
+Type: files; Name: "{autodesktop}\{#AppName}.lnk"
+Type: files; Name: "{userdesktop}\{#AppName}.lnk"
+Type: files; Name: "{autoprograms}\{#AppName}.lnk"
+Type: files; Name: "{userprograms}\{#AppName}.lnk"
+Type: filesandordirs; Name: "{app}"
+#endif
+
 [Run]
 Filename: "{app}\runtime\bin\javaw.exe"; Parameters: "{#JavaArgs}"; WorkingDir: "{app}"; Description: "{cm:LaunchApp}"; Flags: nowait postinstall skipifsilent
 

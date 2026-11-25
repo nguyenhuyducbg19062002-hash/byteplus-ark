@@ -21,7 +21,9 @@ public class AppController {
 
     @GetMapping("/ping")
     public Map<String, Object> ping() {
-        return Map.of("app", "ark-studio", "desktop", shell.getIfAvailable() != null);
+        // version / build: bản desktop mới mở lên so mã build để biết Ark Studio đang chạy có phải chính nó không
+        return Map.of("app", "ark-studio", "desktop", shell.getIfAvailable() != null,
+                "version", ark.desktop.AppVersion.version(), "build", ark.desktop.AppVersion.build());
     }
 
     @PostMapping("/heartbeat")

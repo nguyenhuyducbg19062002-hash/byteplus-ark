@@ -9,7 +9,7 @@ param([switch]$NoInstall)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $appName = 'Ark Studio'
-$version = '1.0.0'   # tăng khi phát hành bản mới (tên file Setup + mục gỡ cài đặt)
+$version = '1.1.0'   # tăng khi phát hành bản mới (tên file Setup + mục gỡ cài đặt)
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 
@@ -48,6 +48,7 @@ Copy-Item (Join-Path $root 'backend\target\byteplus-ark-backend.jar') (Join-Path
 Copy-Item (Join-Path $PSScriptRoot 'ark.ico') $stage
 # File cho người nhận bản zip: cài đặt / chạy thử / hướng dẫn
 Copy-Item (Join-Path $PSScriptRoot 'install-desktop.ps1') $stage
+Copy-Item (Join-Path $PSScriptRoot 'uninstall-desktop.ps1') $stage
 Copy-Item (Join-Path $PSScriptRoot 'dist\*') $stage
 Write-Host "Đã tạo: $stage" -ForegroundColor Green
 

@@ -38,6 +38,28 @@ foreach ($lnk in $startMenu, $desktop) {
     $s.Description = 'Ark Studio – tạo ảnh / video BytePlus'
     $s.Save()
 }
+
+# Mục "Ark Studio" trong Cài đặt › Ứng dụng → Gỡ cài đặt chạy uninstall-desktop.ps1 (xoá cả lối tắt).
+# Cùng khoá với trình cài Inno Setup để không hiện hai mục; cài bằng script đã xoá bộ gỡ cũ của Inno (unins000.exe) nếu có.
+$uninstall = Join-Path $target 'uninstall-desktop.ps1'
+if (Test-Path $uninstall) {
+    $regKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{7B4E2C1A-9F3D-4E8B-A6C2-5D1F0E9A3B71}_is1'
+    if (Test-Path $regKey) { Remove-Item $regKey -Recurse -Force }
+    New-Item $regKey -Force | Out-Null
+    $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $uninstall + '"'
+    $values = @{
+        DisplayName          = $appName
+        DisplayIcon          = (Join-Path $target 'ark.ico')
+        Publisher            = $appName
+        InstallLocation      = $target
+        UninstallString      = $cmd
+        QuietUninstallString = $cmd + ' -Quiet'
+    }
+    foreach ($k in $values.Keys) { New-ItemProperty $regKey -Name $k -Value $values[$k] -PropertyType String -Force | Out-Null }
+    New-ItemProperty $regKey -Name NoModify -Value 1 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty $regKey -Name NoRepair -Value 1 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty $regKey -Name EstimatedSize -PropertyType DWord -Force -Value ([int]((Get-ChildItem $target -Recurse -File | Measure-Object Length -Sum).Sum / 1KB)) | Out-Null
+}
 Write-Host "Đã cài: $target" -ForegroundColor Green
 Write-Host "Lối tắt: Desktop + Start Menu ($appName)"
 

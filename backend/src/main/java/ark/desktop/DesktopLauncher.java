@@ -48,11 +48,13 @@ public final class DesktopLauncher {
         Path home = home();
         if (!acquireInstanceLock(home)) {
             // Đã có Ark Studio: chạy xong rồi → mở thêm cửa sổ; đang khởi động → nó sẽ tự mở cửa sổ, bản này chỉ thoát
-            if (isRunning()) openWindow();
+            String running = runningBuild();
+            if (running != null) openOrWarn(running);
             System.exit(0);
         }
-        if (isRunning()) { // bản cũ (trước khi có khoá) đang chạy
-            openWindow();
+        String running = runningBuild();
+        if (running != null) { // bản cũ (trước khi có khoá) đang chạy
+            openOrWarn(running);
             System.exit(0);
         }
         if (System.getProperty("app.data-dir") == null) {
@@ -106,14 +108,37 @@ public final class DesktopLauncher {
 
     /** Có Ark Studio (không phải chương trình khác) đang nghe ở cổng của app không. */
     static boolean isRunning() {
+        return runningBuild() != null;
+    }
+
+    /**
+     * Nội dung ping của Ark Studio đang chạy (null nếu không có). Bản cũ trước 1.1.0 không trả về "build".
+     */
+    static String runningBuild() {
         try {
             HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(800)).build();
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(url() + "api/v1/app/ping"))
                     .timeout(Duration.ofSeconds(2)).GET().build(), HttpResponse.BodyHandlers.ofString());
-            return r.statusCode() == 200 && r.body().contains("ark-studio");
+            return r.statusCode() == 200 && r.body().contains("ark-studio") ? r.body() : null;
         } catch (Exception e) {
-            return false;
+            return null;
         }
+    }
+
+    /**
+     * Đang chạy đúng bản này → mở thêm cửa sổ. Đang chạy bản KHÁC (thường là bản cũ còn chạy nền ở khay sau khi cài bản mới)
+     * → báo người dùng thoát bản đó, không mở cửa sổ tới giao diện cũ.
+     */
+    static void openOrWarn(String pingBody) {
+        if (pingBody.contains(AppVersion.build())) {
+            openWindow();
+            return;
+        }
+        JOptionPane.showMessageDialog(null,
+                "Một bản Ark Studio khác (bản cũ) vẫn đang chạy nền nên chưa mở được bản " + AppVersion.version() + " vừa cài.\n\n"
+                        + "Cách sửa: chuột phải biểu tượng Ark Studio ở khay hệ thống (góc phải thanh taskbar, có thể nằm trong mũi tên ^)"
+                        + " › Thoát, rồi mở lại Ark Studio.\n\nClip đang tạo dở không mất: mở lại rồi bấm Chạy để theo dõi tiếp.",
+                "Ark Studio", JOptionPane.WARNING_MESSAGE);
     }
 
     /**
@@ -125,7 +150,8 @@ public final class DesktopLauncher {
         try {
             if (browser != null) {
                 List<String> cmd = new ArrayList<>(List.of(browser.toString(),
-                        "--app=" + url(),
+                        // ?v=<mã build>: mỗi bản cài mới là một địa chỉ mới → Edge không dùng trang cũ đã lưu từ bản trước
+                        "--app=" + url() + "?v=" + java.net.URLEncoder.encode(AppVersion.build(), java.nio.charset.StandardCharsets.UTF_8),
                         "--user-data-dir=" + home().resolve("webview"),
                         "--no-first-run", "--no-default-browser-check",
                         "--disable-features=Translate,msTranslation",
