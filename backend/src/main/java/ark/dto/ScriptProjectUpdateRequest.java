@@ -40,6 +40,18 @@ public class ScriptProjectUpdateRequest {
     @Size(max = 500, message = "Đường dẫn thư mục tối đa 500 ký tự")
     private String refSaveDir;
 
+    @Pattern(regexp = "BYTEPLUS|BOTSD", message = "Nguồn tạo video không hợp lệ")
+    private String provider;
+
+    @Pattern(regexp = "sd20|sd25|sd25hd|muse", message = "Model BOTSD không hợp lệ")
+    private String botsdModel;
+
+    @Pattern(regexp = "original|1080p|4k", message = "Độ phân giải BOTSD không hợp lệ")
+    private String botsdResolution;
+
+    @Pattern(regexp = "OFF|BASIC|DEEP", message = "Chế độ người thật không hợp lệ")
+    private String botsdRealPerson;
+
     @Min(value = 1, message = "Chạy song song tối thiểu 1")
     @Max(value = 50, message = "Chạy song song tối đa 50")
     private Integer maxParallel;

@@ -53,7 +53,7 @@ const redoDone = ref(false)
 const importing = ref(false)
 const importResult = ref(null)
 const busy = ref('')
-const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', promptModel: '', autoApproveImages: false, refSaveMode: 'PROJECT', refSaveDir: '' })
+const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', promptModel: '', autoApproveImages: false, refSaveMode: 'PROJECT', refSaveDir: '', provider: 'BYTEPLUS', botsdModel: 'sd25', botsdResolution: 'original', botsdRealPerson: 'OFF' })
 const settingsErrors = ref({})
 const redo = reactive({ codes: '', note: '' })
 const expanded = ref([])
@@ -69,6 +69,14 @@ let excelIntoCurrent = false
 
 const omniModels = computed(() => models.video.filter((m) => m.omni))
 const settingsModel = computed(() => omniModels.value.find((m) => m.id === settings.model))
+// Nguồn tạo video thứ hai: BOTSD (botsd.pro) – giá cơ bản theo tài liệu 10/11/2026, giá thật xem ở Cài đặt › BOTSD
+const BOTSD_MODELS = [
+  { id: 'sd20', name: 'Seedance 2.0', hint: '5/10/15s · 2/6/8P' },
+  { id: 'sd25', name: 'Seedance 2.5', hint: '5/10/15/30s · 9/18/25/50P' },
+  { id: 'sd25hd', name: 'Seedance 2.5 1080P', hint: '5/10/15/30s · 12/24/35/70P' },
+  { id: 'muse', name: 'Muse AI', hint: '5/10s · 2/4P · tối đa 1 ảnh, chỉ 16:9 / 9:16' }
+]
+const botsdModelName = (id) => BOTSD_MODELS.find((m) => m.id === id)?.name || id
 const imageModel = computed(() => models.image.find((m) => m.id === settings.imageModel))
 const IMAGE_STATUS = {
   PENDING: { status: 'queued', label: 'Chờ tạo ảnh' },
@@ -170,7 +178,9 @@ function pick(p) {
   return {
     model: p.model, resolution: p.resolution, ratio: p.ratio, generateAudio: p.generateAudio, maxParallel: p.maxParallel,
     maxAttempts: p.maxAttempts, imageModel: p.imageModel, imageSize: p.imageSize, promptModel: p.promptModel, autoApproveImages: p.autoApproveImages,
-    refSaveMode: p.refSaveMode || 'PROJECT', refSaveDir: p.refSaveDir || ''
+    refSaveMode: p.refSaveMode || 'PROJECT', refSaveDir: p.refSaveDir || '',
+    provider: p.provider || 'BYTEPLUS', botsdModel: p.botsdModel || 'sd25', botsdResolution: p.botsdResolution || 'original',
+    botsdRealPerson: p.botsdRealPerson || 'OFF'
   }
 }
 watch(
@@ -648,16 +658,54 @@ function downloadZip(what) {
             <el-collapse-item name="cfg">
               <template #title>
                 <span class="text-sm font-medium">Cấu hình chạy</span>
-                <span class="hint ml-3">{{ settingsModel?.name || project.model }} · {{ project.resolution }} · {{ project.ratio }} · song song {{ project.maxParallel }} · thử lại {{ project.maxAttempts }} lần</span>
+                <span class="hint ml-3"><template v-if="project.provider === 'BOTSD'"><b class="text-emerald-600 dark:text-emerald-400">BOTSD</b> · {{ botsdModelName(project.botsdModel) }} · {{ project.botsdResolution }}</template><template v-else>BytePlus · {{ settingsModel?.name || project.model }} · {{ project.resolution }}</template> · {{ project.ratio }} · song song {{ project.maxParallel }} · thử lại {{ project.maxAttempts }} lần</span>
               </template>
-              <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+              <div class="mb-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
                 <div class="sm:col-span-2">
+                  <label class="field-label">Nguồn tạo video</label>
+                  <el-radio-group v-model="settings.provider">
+                    <el-radio-button value="BYTEPLUS">BytePlus</el-radio-button>
+                    <el-radio-button value="BOTSD">BOTSD</el-radio-button>
+                  </el-radio-group>
+                </div>
+                <template v-if="settings.provider === 'BOTSD'">
+                  <div class="sm:col-span-2">
+                    <label class="field-label">Model BOTSD</label>
+                    <el-select v-model="settings.botsdModel" class="w-full">
+                      <el-option v-for="m in BOTSD_MODELS" :key="m.id" :label="m.name" :value="m.id">
+                        <span>{{ m.name }}</span><span class="hint ml-2">{{ m.hint }}</span>
+                      </el-option>
+                    </el-select>
+                  </div>
+                  <div>
+                    <label class="field-label">Độ phân giải BOTSD</label>
+                    <el-select v-model="settings.botsdResolution" class="w-full">
+                      <el-option v-for="r in ['original', '1080p', '4k']" :key="r" :label="r" :value="r" />
+                    </el-select>
+                  </div>
+                  <div>
+                    <label class="field-label">Chế độ người thật</label>
+                    <el-select v-model="settings.botsdRealPerson" class="w-full" :disabled="settings.botsdModel === 'muse'">
+                      <el-option value="OFF" label="Tắt" />
+                      <el-option value="BASIC" label="Cơ bản" />
+                      <el-option value="DEEP" label="Chuyên sâu" />
+                    </el-select>
+                  </div>
+                </template>
+              </div>
+              <p v-if="settings.provider === 'BOTSD'" class="hint mb-4">
+                BOTSD: ảnh tham chiếu gửi thẳng từ máy (không cần Virtual Portrait), tính bằng Point BOTSD (đăng nhập ở Cài đặt › BOTSD).
+                Thời lượng clip làm tròn lên 5 / 10 / 15 / 30s. BOTSD không có lệnh huỷ – dừng clip chỉ ngừng theo dõi, Point đã trừ.
+                Không dùng “Tạo âm thanh” và model / độ phân giải BytePlus bên dưới.
+              </p>
+              <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+                <div v-if="settings.provider !== 'BOTSD'" class="sm:col-span-2">
                   <label class="field-label">Model</label>
                   <el-select v-model="settings.model" class="w-full">
                     <el-option v-for="m in omniModels" :key="m.id" :label="m.name" :value="m.id" />
                   </el-select>
                 </div>
-                <div>
+                <div v-if="settings.provider !== 'BOTSD'">
                   <label class="field-label">Độ phân giải</label>
                   <el-select v-model="settings.resolution" class="w-full">
                     <el-option v-for="r in settingsModel?.resolutions || []" :key="r" :label="r" :value="r" />

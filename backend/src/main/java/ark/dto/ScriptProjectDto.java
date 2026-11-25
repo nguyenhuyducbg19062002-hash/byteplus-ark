@@ -15,4 +15,6 @@ public record ScriptProjectDto(Long id, String name, String sourceFile, String f
                                ScriptProject.Status status, String pausedReason, Instant cooldownUntil, Instant createdAt,
                                Map<String, Long> counts, int refsTotal, int refsMissing, int blockedClips, int warningClips,
                                /** Đang chạy chỉ các clip đã chọn (không phải cả kịch bản). */
-                               boolean onlySelected, int selectedPending) {}
+                               boolean onlySelected, int selectedPending,
+                               /** Nguồn tạo video BYTEPLUS / BOTSD và cấu hình BOTSD. */
+                               String provider, String botsdModel, String botsdResolution, String botsdRealPerson) {}

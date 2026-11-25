@@ -62,6 +62,7 @@ public class ScriptService {
     private final AssetLibraryService assetLibrary;
     private final ScriptPromptWriter promptWriter;
     private final ScriptBlockAnalyzer blockAnalyzer;
+    private final BotsdService botsd;
 
     // ---------- dự án ----------
 
@@ -93,6 +94,11 @@ public class ScriptService {
         if (req.getRatio() != null) p.setRatio(req.getRatio());
         if (req.getGenerateAudio() != null) p.setGenerateAudio(req.getGenerateAudio());
         if (req.getMaxParallel() != null) p.setMaxParallel(req.getMaxParallel());
+        if (req.getProvider() != null) p.setProvider(req.getProvider());
+        if (req.getBotsdModel() != null) p.setBotsdModel(req.getBotsdModel());
+        if (req.getBotsdResolution() != null) p.setBotsdResolution(req.getBotsdResolution());
+        if (req.getBotsdRealPerson() != null) p.setBotsdRealPerson(req.getBotsdRealPerson());
+        if (p.isBotsd()) checkBotsd(p);
         if (req.getMaxAttempts() != null) p.setMaxAttempts(req.getMaxAttempts());
         if (req.getAutoApproveImages() != null) p.setAutoApproveImages(req.getAutoApproveImages());
         if (req.getRefSaveDir() != null) {
@@ -130,8 +136,8 @@ public class ScriptService {
     /** Tiếp tục lượt “chỉ chạy clip đã chọn” đang tạm dừng (không kéo theo cả kịch bản). */
     @Transactional
     public ScriptProjectDto resumeSelected(Long id) {
-        if (config.apiKey().isEmpty()) throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
         ScriptProject p = project(id);
+        checkCanRun(p);
         if (!p.isOnlySelected()) throw new IllegalStateException("Dự án không có lượt chạy clip đã chọn nào đang dở");
         p.setStatus(ScriptProject.Status.RUNNING);
         p.setPausedReason(null);
@@ -142,8 +148,7 @@ public class ScriptService {
     /** Chạy cả kịch bản (nút “Chạy video”): mọi clip đang chờ, bỏ chế độ chỉ chạy clip đã chọn. */
     @Transactional
     public ScriptProjectDto start(Long id) {
-        if (config.apiKey().isEmpty()) throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
-        project(id);
+        checkCanRun(project(id));
         clips.clearRunSelected(id);
         ScriptProject p = project(id);
         p.setOnlySelected(false);
@@ -151,6 +156,29 @@ public class ScriptService {
         p.setPausedReason(null);
         p.setCooldownUntil(null);
         return toDto(projects.save(p));
+    }
+
+    /** Nguồn video của dự án đã sẵn sàng: BytePlus cần API key, BOTSD cần tài khoản đã đăng nhập. */
+    private void checkCanRun(ScriptProject p) {
+        if (p.isBotsd()) {
+            if (!botsd.configured()) throw new IllegalStateException("Chưa đăng nhập BOTSD – vào Cài đặt › BOTSD đăng nhập trước khi chạy");
+            checkBotsd(p);
+        } else if (config.apiKey().isEmpty()) {
+            throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
+        }
+    }
+
+    /** Ràng buộc của BOTSD: tỉ lệ khung, Muse AI chỉ 16:9 / 9:16 và không có chế độ người thật. */
+    private static void checkBotsd(ScriptProject p) {
+        if (!BotsdService.RATIOS.contains(p.getRatio())) {
+            throw new IllegalArgumentException("BOTSD không hỗ trợ tỉ lệ " + p.getRatio() + " – chọn " + String.join(", ", BotsdService.RATIOS));
+        }
+        if ("muse".equals(p.getBotsdModel())) {
+            if (!"16:9".equals(p.getRatio()) && !"9:16".equals(p.getRatio())) {
+                throw new IllegalArgumentException("Muse AI chỉ hỗ trợ tỉ lệ 16:9 và 9:16");
+            }
+            if (!"OFF".equals(p.getBotsdRealPerson())) throw new IllegalArgumentException("Muse AI không hỗ trợ chế độ người thật");
+        }
     }
 
     @Transactional
@@ -227,8 +255,8 @@ public class ScriptService {
      * nếu không, dự án chuyển sang “chỉ chạy clip đã chọn” (đang chạy chế độ này thì thêm clip vào lượt hiện tại).
      */
     private ScriptProjectDto startSelected(Long id, List<Long> clipIds, java.util.function.Consumer<ScriptClip> prepare) {
-        if (config.apiKey().isEmpty()) throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
         ScriptProject before = project(id);
+        checkCanRun(before);
         boolean running = before.getStatus() == ScriptProject.Status.RUNNING;
         boolean runningAll = running && !before.isOnlySelected();
         // Lượt chọn mới (đang tạm dừng giữa một lượt chọn thì thêm vào lượt đó, không bỏ lựa chọn cũ)
@@ -679,6 +707,8 @@ public class ScriptService {
                 .pausedReason(p.getPausedReason()).cooldownUntil(p.getCooldownUntil()).createdAt(p.getCreatedAt())
                 .counts(counts).refsTotal(refs.size()).refsMissing(missing).blockedClips(blocked).warningClips(warn)
                 .onlySelected(p.isOnlySelected())
+                .provider(p.getProvider()).botsdModel(p.getBotsdModel()).botsdResolution(p.getBotsdResolution())
+                .botsdRealPerson(p.getBotsdRealPerson())
                 .selectedPending((int) all.stream().filter(c -> c.isRunSelected() && (c.getStatus() == ScriptClip.Status.PENDING
                         || c.getStatus() == ScriptClip.Status.GENERATING)).count())
                 .build();

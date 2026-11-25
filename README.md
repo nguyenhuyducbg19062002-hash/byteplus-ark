@@ -117,6 +117,24 @@ API: `/api/v1/script-projects` (list, import, `{id}`, `start`, `pause`, `retry-f
 `references`, `references/{code}`, `references/{code}/upload`, `references/auto-match`, `references/generate`,
 `references/stop-generate`, `references/{code}/prompt`, `references/match-files`, `references/{code}/approve`, `references/{code}/reject`, `references/approve-all`) và `/api/v1/script-clips/{id}` (`PUT`, `run`, `cancel`).
 
+## Nguồn tạo video BOTSD (botsd.pro)
+
+Ngoài BytePlus, Kịch bản hàng loạt chạy được qua API BOTSD (tính bằng Point BOTSD):
+1. **Cài đặt › BOTSD**: nhập tên đăng nhập + mật khẩu → **Đăng nhập** (xem số dư, bảng giá). Mật khẩu và `clientToken` chỉ lưu ở
+   `config.properties` (`botsd_username`, `botsd_password`, `botsd_token`); phiên hết hạn (401) thì app tự đăng nhập lại.
+2. **Kịch bản › Cấu hình chạy › Nguồn tạo video = BOTSD**, chọn model `sd20` / `sd25` / `sd25hd` / `muse`, độ phân giải (original / 1080p / 4k),
+   chế độ người thật (tắt / cơ bản / chuyên sâu). Tỉ lệ: 16:9, 9:16, 1:1, 4:3, 3:4, 21:9 (Muse AI chỉ 16:9 / 9:16, tối đa 1 ảnh).
+3. Bấm Chạy như bình thường. Mỗi clip: ảnh tham chiếu trên máy gửi base64 đúng thứ tự (nhận dạng jpg/png/webp theo nội dung file,
+   không cần Virtual Portrait) → `POST /api/web/create` → xem tiến độ mỗi 15s → `videoReady` thì tải về `output/videos/<dự án>/<mã>.mp4`.
+   Thời lượng clip làm tròn lên 5 / 10 / 15 / 30s. Task ID lưu dạng `botsd:web_…` (backend khởi động lại thì theo dõi tiếp, không gửi lại).
+
+Xử lý lỗi: 402 hết Point / 401 sai tài khoản → tạm dừng dự án; 429 → chờ `retryAfterSeconds`; 409 (quá số task đang chạy) → chờ 30s;
+503 / 5xx / mạng → thử lại; 400 → lỗi clip; task `failed` → tạo task mới (tính 1 lần thử). Gửi task lần lượt: mất kết nối lúc gửi thì app
+so lịch sử BOTSD trước/sau để biết task đã được nhận chưa – không chắc thì tạm dừng dự án chứ không tự gửi lại (tránh trừ Point 2 lần).
+BOTSD không có lệnh huỷ: dừng clip chỉ ngừng theo dõi.
+
+API: `POST /api/v1/settings/botsd/login`, `GET /api/v1/settings/botsd/status`, `DELETE /api/v1/settings/botsd`.
+
 ## REST API của backend
 
 | Method | Path | Mô tả |

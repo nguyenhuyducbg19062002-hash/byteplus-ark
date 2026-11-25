@@ -6,4 +6,6 @@ import lombok.Builder;
 @Builder
 public record SettingsDto(String apiKey, boolean apiKeySet, String baseUrl, String outputDir, String accessKey,
                           String secretKey, boolean akskSet, String projectName, String assetGroup, boolean autoPush,
-                          String configFile) {}
+                          String configFile,
+                          /** BOTSD: tài khoản đã lưu và đã có phiên đăng nhập (clientToken) chưa – không trả mật khẩu / token. */
+                          String botsdUsername, boolean botsdLoggedIn) {}

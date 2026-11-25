@@ -97,6 +97,42 @@ public class ScriptProject {
         return Boolean.TRUE.equals(onlySelected);
     }
 
+    /** Nguồn tạo video: BYTEPLUS (ModelArk, mặc định) hoặc BOTSD (botsd.pro). null = BYTEPLUS. */
+    @Column(length = 10)
+    private String provider;
+
+    public String getProvider() {
+        return provider == null ? "BYTEPLUS" : provider;
+    }
+
+    public boolean isBotsd() {
+        return "BOTSD".equals(provider);
+    }
+
+    /** Model BOTSD: sd20, sd25, sd25hd, muse. null = sd25. */
+    @Column(length = 10)
+    private String botsdModel;
+
+    public String getBotsdModel() {
+        return botsdModel == null ? "sd25" : botsdModel;
+    }
+
+    /** Độ phân giải BOTSD: original, 1080p, 4k. null = original. */
+    @Column(length = 10)
+    private String botsdResolution;
+
+    public String getBotsdResolution() {
+        return botsdResolution == null ? "original" : botsdResolution;
+    }
+
+    /** Chế độ người thật BOTSD: OFF, BASIC (realPersonMode), DEEP (realPersonDeepMode). null = OFF. */
+    @Column(length = 10)
+    private String botsdRealPerson;
+
+    public String getBotsdRealPerson() {
+        return botsdRealPerson == null ? "OFF" : botsdRealPerson;
+    }
+
     /** Số clip gửi song song tối đa. */
     private int maxParallel = 3;
 

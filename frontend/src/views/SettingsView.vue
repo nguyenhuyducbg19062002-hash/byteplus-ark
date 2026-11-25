@@ -5,6 +5,7 @@ import { useSettingsStore } from '../stores/settings'
 import PageHeader from '../components/PageHeader.vue'
 import AsyncState from '../components/AsyncState.vue'
 import StatusBadge from '../components/StatusBadge.vue'
+import BotsdCard from '../components/BotsdCard.vue'
 
 /** Key lưu ở backend (%USERPROFILE%\.byteplus-ark\config.properties); frontend chỉ thấy bản che. */
 const store = useSettingsStore()
@@ -53,7 +54,7 @@ onActivated(load)
 
 <template>
   <div class="mx-auto max-w-3xl p-6 lg:p-8">
-    <PageHeader title="Cài đặt" subtitle="Khoá truy cập BytePlus và nơi lưu file" icon="Setting" />
+    <PageHeader title="Cài đặt" subtitle="Khoá truy cập BytePlus, tài khoản BOTSD và nơi lưu file" icon="Setting" />
 
     <AsyncState :loading="store.loading && !store.settings" :error="!store.settings ? store.error : null" :rows="8" @retry="load">
       <form class="space-y-6" @submit.prevent="save">
@@ -117,6 +118,8 @@ onActivated(load)
             <span class="text-sm">{{ testResult.aksk }}</span>
           </div>
         </section>
+
+        <BotsdCard :settings="store.settings" @changed="load" />
 
         <p class="hint">File cấu hình: {{ store.settings?.configFile }}</p>
       </form>

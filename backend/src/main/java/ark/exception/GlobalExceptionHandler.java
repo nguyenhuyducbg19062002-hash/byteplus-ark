@@ -66,6 +66,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(s).body(new ApiError(e.getMessage(), e.code(), e.status(), e.requestId(), null));
     }
 
+    /** Lỗi từ API BOTSD: 4xx → 400 kèm thông báo của BOTSD, còn lại 502. */
+    @ExceptionHandler(ark.integration.botsd.BotsdException.class)
+    public ResponseEntity<ApiError> botsd(ark.integration.botsd.BotsdException e) {
+        HttpStatus s = e.status() >= 400 && e.status() < 500 ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(s).body(new ApiError("BOTSD: " + e.getMessage(), "BOTSD_" + e.status(), e.status(), null, null));
+    }
+
     /** Trình duyệt đóng / tua video giữa chừng → kết nối bị ngắt: bình thường, không cần trả lỗi. */
     @ExceptionHandler({org.springframework.web.context.request.async.AsyncRequestNotUsableException.class,
             org.apache.catalina.connector.ClientAbortException.class})
@@ -102,7 +109,7 @@ public class GlobalExceptionHandler {
                 || c.getClass() == RuntimeException.class)) {
             c = c.getCause();
         }
-        if (c instanceof ArkException) return c.toString();
+        if (c instanceof ArkException || c instanceof ark.integration.botsd.BotsdException) return c.toString();
         return c.getMessage() != null ? c.getMessage() : c.toString();
     }
 }

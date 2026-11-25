@@ -88,4 +88,12 @@ class ScriptHelpersTest {
         assertFalse(ScriptImportService.onlyVoice("CHAR_LOR's voice says hi. CHAR_LOR walks in.", "CHAR_LOR"));
         assertFalse(ScriptImportService.onlyVoice("Walk down the CHAR_STR at night", "CHAR_STR"));
     }
+
+    @Test
+    void botsdImageTypeFromContent() {
+        assertEquals("image/png", ScriptRunner.imageMime(new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10}, "a.jpg"));
+        assertEquals("image/jpeg", ScriptRunner.imageMime(new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0}, "a.png"));
+        assertEquals("image/webp", ScriptRunner.imageMime("RIFF0000WEBPVP8 ".getBytes(), "a.bin"));
+        assertEquals(null, ScriptRunner.imageMime(new byte[] {1, 2, 3}, "a.bmp"));
+    }
 }

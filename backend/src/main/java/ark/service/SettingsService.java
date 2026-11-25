@@ -33,6 +33,8 @@ public class SettingsService {
                 .assetGroup(config.assetGroup())
                 .autoPush(config.autoPush())
                 .configFile(config.file().toString())
+                .botsdUsername(config.botsdUsername())
+                .botsdLoggedIn(!config.botsdToken().isEmpty())
                 .build();
     }
 

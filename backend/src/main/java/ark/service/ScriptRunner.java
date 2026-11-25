@@ -66,6 +66,12 @@ public class ScriptRunner {
     private final FileLibraryService fileLibrary;
     private final AssetLibraryService assetLibrary;
     private final ScriptBlockAnalyzer blockAnalyzer;
+    private final BotsdService botsd;
+
+    /** taskId của clip chạy qua BOTSD có tiền tố này (phân biệt với task BytePlus). */
+    static final String BOTSD_PREFIX = "botsd:";
+    /** Gửi task BOTSD lần lượt: lỗi mạng lúc gửi thì so lịch sử trước/sau để biết task đã được nhận chưa (tránh trừ Point 2 lần). */
+    private final Object botsdCreateLock = new Object();
 
     /** Tiền tố lý do chặn khi chính Virtual Portrait từ chối ảnh → cần người thay ảnh. */
     public static final String VP_FAILED = "Virtual Portrait từ chối ảnh";
@@ -132,7 +138,7 @@ public class ScriptRunner {
             if (running >= p.getMaxParallel()) return;
             if (active.containsKey(c.getId())) continue;
             if (p.isOnlySelected() && !c.isRunSelected()) continue; // chỉ chạy clip / cảnh đã chọn
-            List<String> missing = check.missing(c);
+            List<String> missing = p.isBotsd() ? check.missingFiles(c) : check.missing(c);
             if (!missing.isEmpty()) {
                 blocked++;
                 missingCodes.addAll(missing);
@@ -239,6 +245,13 @@ public class ScriptRunner {
             return out;
         }
 
+        /** Mã chưa có ảnh dùng được (bỏ qua chặn Virtual Portrait – dùng cho BOTSD, ảnh gửi thẳng base64). */
+        public List<String> missingFiles(ScriptClip c) {
+            List<String> out = new ArrayList<>();
+            for (String code : c.refList()) if (noFile(code)) out.add(code);
+            return out;
+        }
+
         /** Chưa gán ảnh hoặc ảnh không còn dùng được. */
         public boolean noFile(String code) {
             return noFile.computeIfAbsent(code, k -> {
@@ -328,6 +341,11 @@ public class ScriptRunner {
         try {
             clip = clips.findById(clipId).orElseThrow();
             project = projects.findById(clip.getProjectId()).orElseThrow();
+            // Task đã gửi thì theo dõi ở đúng nơi đã gửi; clip mới gửi theo nguồn của dự án
+            if (clip.getTaskId() != null ? clip.getTaskId().startsWith(BOTSD_PREFIX) : project.isBotsd()) {
+                runBotsd(clip, project, say);
+                return;
+            }
             Models.VideoModel model = Models.video(project.getModel());
             ArkClient client = ArkClient.from(config);
 
@@ -379,6 +397,205 @@ public class ScriptRunner {
             cancelRequested.remove(clipId);
             lastLog.remove(clipId);
         }
+    }
+
+    // ---------- BOTSD ----------
+
+    private static final long BOTSD_POLL_MS = 15_000;
+    private static final long MAX_IMAGE_BYTES = 30L * 1024 * 1024;
+
+    private void runBotsd(ScriptClip clip, ScriptProject project, Consumer<String> say) throws Exception {
+        Long clipId = clip.getId();
+        BotsdService.BotsdModel m = BotsdService.model(project.getBotsdModel());
+        String jobId;
+        if (clip.getTaskId() == null) {
+            Map<String, Object> payload = botsdPayload(clip, project, m);
+            say.accept("Đang gửi task lên BOTSD (" + m.name() + ", " + payload.get("seconds") + "s)…");
+            jobId = submitBotsd(payload, say);
+            String t = BOTSD_PREFIX + jobId;
+            updateClip(clipId, c -> c.setTaskId(t));
+        } else {
+            jobId = clip.getTaskId().substring(BOTSD_PREFIX.length());
+            say.accept("Theo dõi tiếp task BOTSD " + jobId);
+        }
+
+        long nextPoll = 0;
+        int netErrors = 0;
+        while (true) {
+            if (cancelRequested.contains(clipId)) {
+                finish(clipId, ScriptClip.Status.CANCELLED,
+                        "Đã dừng theo dõi – BOTSD không có lệnh huỷ nên task " + jobId + " vẫn chạy trên BOTSD (Point đã trừ)", true);
+                return;
+            }
+            if (System.currentTimeMillis() >= nextPoll) {
+                Map<String, Object> r;
+                try {
+                    r = botsd.job(jobId);
+                    netErrors = 0;
+                } catch (ark.integration.botsd.BotsdException e) {
+                    if (e.status() != 429 && e.status() < 500) throw e;
+                    int wait = e.retryAfterSeconds() != null ? e.retryAfterSeconds() : 30;
+                    say.accept("BOTSD bận (" + e.status() + "), xem lại tiến độ sau " + wait + "s");
+                    nextPoll = System.currentTimeMillis() + wait * 1000L;
+                    continue;
+                } catch (IOException e) {
+                    // Lỗi mạng khi xem tiến độ: không tạo task mới, chỉ xem lại đúng job này
+                    if (++netErrors > 20) throw e;
+                    say.accept("Lỗi mạng khi xem tiến độ (" + netErrors + "), thử lại sau 20s…");
+                    nextPoll = System.currentTimeMillis() + 20_000;
+                    continue;
+                }
+                Object job = Json.path(r, "job");
+                String message = Json.str(job, "message");
+                if (Boolean.TRUE.equals(Json.path(job, "failed"))) {
+                    throw new TaskFailed("BotsdFailed", "BOTSD báo lỗi: " + (message == null ? Json.str(job, "status") : message));
+                }
+                if (Boolean.TRUE.equals(Json.path(job, "videoReady"))) break;
+                Object pct = Json.path(job, "progressPercent");
+                say.accept("BOTSD: " + (message != null ? message : Json.str(job, "status")) + (pct != null ? " (" + pct + "%)" : ""));
+                nextPoll = System.currentTimeMillis() + BOTSD_POLL_MS;
+            }
+            Thread.sleep(1000);
+        }
+
+        Path target = freeTarget(project, clip.getCode(), "mp4");
+        say.accept("Đang tải video từ BOTSD…");
+        botsd.download(jobId, target);
+        GeneratedFile f = fileLibrary.record(new SavedOutput(target, null), "botsd-" + m.id(), clip.getPrompt(),
+                BOTSD_PREFIX + jobId, null);
+        updateClip(clipId, c -> {
+            c.setStatus(ScriptClip.Status.SUCCEEDED);
+            c.setFileId(f.getId());
+            c.setError(null);
+            c.setFinishedAt(Instant.now());
+        });
+    }
+
+    /** Payload /api/web/create (chưa có clientToken): ảnh tham chiếu theo đúng thứ tự clip, base64 không tiền tố data:. */
+    private Map<String, Object> botsdPayload(ScriptClip clip, ScriptProject project, BotsdService.BotsdModel m) throws IOException {
+        String prompt = clip.getPrompt();
+        int maxLen = m.id().startsWith("sd25") ? 15_000 : 20_000;
+        if (prompt.length() > maxLen) {
+            throw new IllegalArgumentException("Prompt " + prompt.length() + " ký tự > tối đa " + maxLen + " của " + m.name() + " trên BOTSD");
+        }
+        List<String> codes = clip.refList();
+        if (codes.size() > m.maxImages()) {
+            throw new IllegalArgumentException(m.name() + " chỉ nhận tối đa " + m.maxImages() + " ảnh, clip có " + codes.size()
+                    + " ảnh – đổi model BOTSD trong Cấu hình chạy");
+        }
+        Map<String, ScriptReference> refs = references.findByProjectIdOrderByKindAscCodeAsc(project.getId()).stream()
+                .collect(Collectors.toMap(ScriptReference::getCode, r -> r, (a, b) -> a));
+        List<Map<String, Object>> images = new ArrayList<>();
+        for (String code : codes) {
+            ScriptReference r = refs.get(code);
+            if (r == null || r.getFileId() == null) throw new IllegalArgumentException("Chưa gán ảnh cho mã " + code);
+            GeneratedFile f = fileLibrary.get(r.getFileId());
+            Path path = fileLibrary.pathOf(f);
+            if (!Files.isRegularFile(path)) {
+                throw new IllegalArgumentException("Ảnh của mã " + code + " (" + f.getName() + ") không còn trên máy – BOTSD cần file ảnh");
+            }
+            String name = path.getFileName().toString();
+            if (Files.size(path) > MAX_IMAGE_BYTES) throw new IllegalArgumentException("Ảnh " + name + " của mã " + code + " > 30 MB");
+            byte[] bytes = Files.readAllBytes(path);
+            String mime = imageMime(bytes, name);
+            if (mime == null) throw new IllegalArgumentException("Ảnh " + name + " của mã " + code + ": BOTSD chỉ nhận jpg / png / webp");
+            // Tên file khớp định dạng thật (vd ảnh PNG đặt đuôi .jpg)
+            String ext = switch (mime) {
+                case "image/png" -> ".png";
+                case "image/webp" -> ".webp";
+                default -> ".jpg";
+            };
+            Map<String, Object> img = new java.util.LinkedHashMap<>();
+            img.put("name", name.replaceFirst("\\.[^.]+$", "") + ext);
+            img.put("type", mime);
+            img.put("durationMs", 0);
+            img.put("data", java.util.Base64.getEncoder().encodeToString(bytes));
+            img.put("clientId", code);
+            images.add(img);
+        }
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("prompt", prompt);
+        body.put("model", m.id());
+        body.put("seconds", BotsdService.seconds(m, clip.getDuration()));
+        body.put("ratio", project.getRatio());
+        body.put("resolution", project.getBotsdResolution());
+        body.put("images", images);
+        String rp = project.getBotsdRealPerson();
+        if (!"OFF".equals(rp)) {
+            if (images.isEmpty()) throw new IllegalArgumentException("Chế độ người thật của BOTSD cần ít nhất một ảnh tham chiếu");
+            body.put("DEEP".equals(rp) ? "realPersonDeepMode" : "realPersonMode", true);
+        }
+        return body;
+    }
+
+    /** Định dạng ảnh theo nội dung (chữ ký đầu file), không có thì theo đuôi file. */
+    static String imageMime(byte[] b, String name) {
+        if (b.length >= 3 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xD8 && (b[2] & 0xFF) == 0xFF) return "image/jpeg";
+        if (b.length >= 8 && (b[0] & 0xFF) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G') return "image/png";
+        if (b.length >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'E' && b[10] == 'B'
+                && b[11] == 'P') return "image/webp";
+        return imageMime(name);
+    }
+
+    static String imageMime(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+        if (n.endsWith(".png")) return "image/png";
+        if (n.endsWith(".webp")) return "image/webp";
+        return null;
+    }
+
+    /**
+     * Gửi task BOTSD (lần lượt từng task). Lỗi mạng / hết giờ chờ phản hồi thì chưa chắc BOTSD đã nhận: so lịch sử trước và
+     * sau – có đúng một task mới thì nhận task đó; không có thì gửi lại an toàn (lỗi tạm thời); không xác định được thì
+     * tạm dừng dự án để người dùng kiểm tra, không tự gửi lại (tránh trừ Point 2 lần).
+     */
+    private String submitBotsd(Map<String, Object> payload, Consumer<String> say) throws Exception {
+        synchronized (botsdCreateLock) {
+            Set<String> before = null;
+            try {
+                before = botsdJobIds(botsd.history());
+            } catch (Exception e) {
+                log.debug("Không đọc được lịch sử BOTSD trước khi gửi: {}", GlobalExceptionHandler.describe(e));
+            }
+            try {
+                Map<String, Object> r = botsd.create(payload);
+                String id = Json.str(r, "job", "id");
+                if (id == null || id.isBlank()) throw new IllegalStateException("BOTSD không trả về job.id – kiểm tra lịch sử BOTSD rồi bấm Chạy");
+                return id;
+            } catch (ark.integration.botsd.BotsdException e) {
+                throw e; // BOTSD đã trả lời rõ ràng (task không được tạo)
+            } catch (IOException e) {
+                say.accept("Mất kết nối khi gửi – kiểm tra lịch sử BOTSD xem task đã được nhận chưa…");
+                Thread.sleep(5000);
+                Set<String> after;
+                try {
+                    after = botsdJobIds(botsd.history());
+                } catch (Exception e2) {
+                    after = null;
+                }
+                if (before != null && after != null) {
+                    after.removeAll(before);
+                    if (after.size() == 1) {
+                        String id = after.iterator().next();
+                        log.info("BOTSD đã nhận task {} dù mất kết nối khi gửi", id);
+                        return id;
+                    }
+                    if (after.isEmpty()) throw e; // chưa nhận → thử lại như lỗi mạng thường
+                }
+                throw new IllegalStateException("Không chắc BOTSD đã nhận clip (mất kết nối khi gửi: "
+                        + GlobalExceptionHandler.describe(e) + ") – xem lịch sử trên botsd.pro, tránh trừ Point 2 lần, rồi bấm Chạy");
+            }
+        }
+    }
+
+    private static Set<String> botsdJobIds(List<?> jobs) {
+        Set<String> ids = new java.util.HashSet<>();
+        for (Object j : jobs) {
+            String id = Json.str(j, "id");
+            if (id != null) ids.add(id);
+        }
+        return ids;
     }
 
     /**
@@ -525,6 +742,30 @@ public class ScriptRunner {
                 blockAnalyzer.analyzeLater(clipId, tf.code, msg);
             } else {
                 transient_(clipId, project, msg, true);
+            }
+            return;
+        }
+        if (e instanceof ark.integration.botsd.BotsdException be) {
+            int s = be.status();
+            if (s == 429) {
+                int wait = be.retryAfterSeconds() != null ? Math.max(5, be.retryAfterSeconds()) : (int) COOLDOWN_SECONDS;
+                requeue(clipId, "BOTSD: gửi quá nhanh (429) – chờ " + wait + "s rồi gửi lại");
+                if (project != null) updateProject(project.getId(), p -> p.setCooldownUntil(Instant.now().plusSeconds(wait)));
+            } else if (s == 409) {
+                requeue(clipId, "BOTSD: đã đạt giới hạn task đang chạy – chờ task trước xong rồi gửi tiếp");
+                if (project != null) updateProject(project.getId(), p -> p.setCooldownUntil(Instant.now().plusSeconds(30)));
+            } else if (s == 401) {
+                requeue(clipId, msg);
+                pause(project, "Đăng nhập BOTSD hết hạn / sai mật khẩu – vào Cài đặt › BOTSD đăng nhập lại rồi bấm Chạy");
+            } else if (s == 402) {
+                requeue(clipId, msg);
+                pause(project, "Không đủ Point BOTSD – nạp thêm Point (hoặc chọn model / thời lượng rẻ hơn) rồi bấm Chạy");
+            } else if (s == 404 || s == 410) {
+                transient_(clipId, project, msg, true); // task / dữ liệu không còn → gửi task mới
+            } else if (s >= 500) {
+                transient_(clipId, project, msg, false);
+            } else {
+                finish(clipId, ScriptClip.Status.FAILED, msg, true);
             }
             return;
         }

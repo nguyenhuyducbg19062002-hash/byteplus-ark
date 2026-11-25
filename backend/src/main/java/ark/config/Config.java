@@ -106,6 +106,23 @@ public class Config {
         return r.isEmpty() ? "ap-southeast-1" : r;
     }
 
+    // ---- BOTSD (botsd.pro) – nguồn tạo video thứ hai, đăng nhập bằng tài khoản BOTSD ----
+
+    public String botsdBaseUrl() {
+        String u = props.getProperty("botsd_base_url", "").trim();
+        return u.isEmpty() ? "https://botsd.pro" : u;
+    }
+
+    public String botsdUsername() { return props.getProperty("botsd_username", "").trim(); }
+    public void setBotsdUsername(String v) { set("botsd_username", v); }
+
+    public String botsdPassword() { return props.getProperty("botsd_password", ""); }
+    public void setBotsdPassword(String v) { props.setProperty("botsd_password", v == null ? "" : v); }
+
+    /** clientToken nhận khi đăng nhập (hết hạn → app tự đăng nhập lại bằng tài khoản đã lưu). */
+    public String botsdToken() { return props.getProperty("botsd_token", "").trim(); }
+    public void setBotsdToken(String v) { set("botsd_token", v); }
+
     private void set(String k, String v) { props.setProperty(k, v == null ? "" : v.trim()); }
 
     private String envOr(String key, String env) {
