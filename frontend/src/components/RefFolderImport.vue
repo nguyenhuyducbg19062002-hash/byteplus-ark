@@ -9,7 +9,13 @@ import api from '../api'
  * 2. backend gợi ý mã cho từng file theo tên file + thư mục (chưa tải ảnh lên);
  * 3. người dùng xem, sửa mã, bỏ file không cần → bấm Nhập: ảnh to được thu nhỏ rồi tải lên và gán cho mã.
  */
-const props = defineProps({ modelValue: Boolean, projectId: Number, references: { type: Array, default: () => [] } })
+const props = defineProps({
+  modelValue: Boolean,
+  projectId: Number,
+  references: { type: Array, default: () => [] },
+  // ảnh có sẵn khi mở hộp thoại (vd từ nút “Nhập thư mục kết quả”): [{ file, path }]
+  initialFiles: { type: Array, default: () => [] }
+})
 const emit = defineEmits(['update:modelValue', 'done'])
 
 const IMAGE_EXT = /\.(jpe?g|png|webp|bmp)$/i
@@ -50,11 +56,15 @@ const stats = computed(() => ({
 watch(
   () => props.modelValue,
   (open) => {
-    if (open) return
+    if (open) {
+      if (props.initialFiles.length && !rows.value.length) addFiles(props.initialFiles)
+      return
+    }
     rows.value.forEach((r) => URL.revokeObjectURL(r.url))
     rows.value = []
     progress.value = { done: 0, total: 0, failed: [] }
-  }
+  },
+  { immediate: true } // hộp thoại có thể được tạo khi đã mở sẵn (dự án vừa nhập)
 )
 
 function close() {

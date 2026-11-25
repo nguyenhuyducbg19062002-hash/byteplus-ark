@@ -102,9 +102,10 @@ public class ScriptReference {
     }
 
     public static Kind kindOf(String code) {
-        if (code.startsWith("CHAR_")) return Kind.CHARACTER;
-        if (code.startsWith("LOC_")) return Kind.LOCATION;
-        if (code.startsWith("PROP_")) return Kind.PROP;
+        // CHAR_YVO_NAVYTEE_01 (Excel kịch bản cũ) hoặc CHAR-DANIEL-1 (bộ file "KET QUA": all-video-prompts.xlsx…)
+        if (code.startsWith("CHAR_") || code.startsWith("CHAR-")) return Kind.CHARACTER;
+        if (code.startsWith("LOC_") || code.startsWith("LOC-")) return Kind.LOCATION;
+        if (code.startsWith("PROP_") || code.startsWith("PROP-")) return Kind.PROP;
         return Kind.OTHER;
     }
 }

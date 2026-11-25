@@ -53,6 +53,18 @@ public class ScriptImportService {
     /** Mã nhân vật trần (không có hậu tố trang phục) xuất hiện trong prompt, vd "CHAR_STR". */
     private static final Pattern BARE_CHAR = Pattern.compile("\\bCHAR_[A-Z]{2,}\\b(?!_)");
     private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$");
+    /** Mã nhân vật dạng gạch ngang có số bộ trang phục: CHAR-DANIEL-2 → nhân vật CHAR-DANIEL, bộ 2. */
+    private static final Pattern HYPHEN_CHAR = Pattern.compile("^(CHAR-[A-Za-z0-9-]+?)-(\\d+)$");
+    /** "1. GENERATION GOAL …" → bỏ số thứ tự đầu prompt. */
+    private static final Pattern LEADING_NUM = Pattern.compile("^\\s*\\d+\\.\\s+");
+    private static final Pattern REQUESTED_DURATION = Pattern.compile("Requested duration:\\s*(\\d+(?:\\.\\d+)?)\\s*seconds",
+            Pattern.CASE_INSENSITIVE);
+    /** "@LOC-8 = the Crown Room ballroom." trong mục REFERENCE BINDING của prompt video. */
+    private static final Pattern BINDING = Pattern.compile("@([A-Za-z]+-[A-Za-z0-9-]+)\\s*=\\s*([^.\\n]{1,200})\\.");
+    /** Dòng chú thích "CHAR-BITSY-1 = Bitsy Hollister · trang phục: … · màu: …". */
+    private static final Pattern ANNOTATION = Pattern.compile("^\\s*([A-Za-z0-9][A-Za-z0-9_-]*)\\s*=\\s*(.+?)\\s*$", Pattern.MULTILINE);
+    private static final Pattern TRAILING_NUM = Pattern.compile("(\\d+)\\s*$");
+    private static final String VOICE_TAG = "Thoại tạo ngoài (lồng tiếng sau): ";
 
     private final ScriptProjectRepository projects;
     private final ScriptClipRepository clips;
@@ -72,35 +84,110 @@ public class ScriptImportService {
     private record ParsedClip(String code, String scene, String timecode, int duration, List<String> refs,
                               String prompt, String promptVi, String dialogue, String note, List<String> warnings) {}
 
+    /** Một file Excel tải lên. */
+    public record Source(InputStream in, String fileName) {}
+
     @Transactional
     public ScriptImportResult importExcel(InputStream in, String fileName, Long projectId, String name) throws IOException {
+        return importFiles(List.of(new Source(in, fileName)), projectId, name);
+    }
+
+    /**
+     * Nhập một hoặc nhiều file Excel cùng lúc. Ngoài định dạng kịch bản cũ, nhận bộ file "KET QUA" của tool viết kịch bản:
+     * <ul>
+     * <li>{@code all-video-prompts.xlsx}: STT segment | Nội dung prompt | Reference IDs | Thời lượng | Tóm tắt (tiếng Việt) | Chú thích ID;</li>
+     * <li>{@code reference-prompts.xlsx}: STT | Reference ID | Prompt tạo reference | Chú thích ID – prompt tạo ảnh cho từng mã;</li>
+     * <li>{@code voice-overlay.xlsx}: ID segment (E01-29) | Nội dung thoại tạo ngoài – ghi vào ghi chú của clip.</li>
+     * </ul>
+     * File không nhận ra định dạng được bỏ qua kèm cảnh báo.
+     */
+    @Transactional
+    public ScriptImportResult importFiles(List<Source> sources, Long projectId, String name) throws IOException {
         List<ParsedRef> refs = new ArrayList<>();
         List<ParsedClip> parsed = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        Map<String, String> voice = new LinkedHashMap<>();
+        String fileName = null;
+        boolean oldScriptMissing = false;
 
-        try (Workbook wb = WorkbookFactory.create(in)) {
-            FormulaEvaluator eval = wb.getCreationHelper().createFormulaEvaluator();
-            DataFormatter fmt = new DataFormatter();
-            Sheet script = null;
-            for (Sheet s : wb) {
-                String n = upper(s.getSheetName());
-                if (n.contains("KỊCH BẢN") || n.contains("KICH BAN") || n.contains("SCRIPT")) script = s;
-                else if (n.contains("NHÂN VẬT") || n.contains("NHAN VAT") || n.contains("CHARACTER")) readCharacters(s, fmt, eval, refs);
-                else if (n.contains("BỐI CẢNH") || n.contains("BOI CANH") || n.contains("ĐẠO CỤ") || n.contains("DAO CU")
-                        || n.contains("LOCATION") || n.contains("PROP")) readCodeList(s, fmt, eval, refs);
+        for (Source src : sources) {
+            boolean used = false;
+            int clipsBefore = parsed.size();
+            try (Workbook wb = WorkbookFactory.create(src.in())) {
+                FormulaEvaluator eval = wb.getCreationHelper().createFormulaEvaluator();
+                DataFormatter fmt = new DataFormatter();
+                Sheet script = null;
+                boolean oldFormat = false;
+                for (Sheet s : wb) {
+                    // Bộ file "KET QUA": nhận theo tiêu đề cột
+                    if (headerWith(s, fmt, eval, h -> h.containsKey("REFERENCE IDS") || h.containsKey("STT SEGMENT")) >= 0) {
+                        readSegments(s, fmt, eval, parsed, refs, warnings);
+                        used = true;
+                        continue;
+                    }
+                    if (headerWith(s, fmt, eval, h -> h.containsKey("REFERENCE ID")) >= 0) {
+                        readReferencePrompts(s, fmt, eval, refs);
+                        used = true;
+                        continue;
+                    }
+                    if (headerWith(s, fmt, eval, h -> h.containsKey("ID SEGMENT")
+                            && h.keySet().stream().anyMatch(k -> k.contains("THOẠI"))) >= 0) {
+                        readVoice(s, fmt, eval, voice);
+                        used = true;
+                        continue;
+                    }
+                    String n = upper(s.getSheetName());
+                    if (n.contains("KỊCH BẢN") || n.contains("KICH BAN") || n.contains("SCRIPT")) {
+                        script = s;
+                        oldFormat = true;
+                    } else if (n.contains("NHÂN VẬT") || n.contains("NHAN VAT") || n.contains("CHARACTER")) {
+                        readCharacters(s, fmt, eval, refs);
+                        oldFormat = true;
+                    } else if (n.contains("BỐI CẢNH") || n.contains("BOI CANH") || n.contains("ĐẠO CỤ") || n.contains("DAO CU")
+                            || n.contains("LOCATION") || n.contains("PROP")) {
+                        readCodeList(s, fmt, eval, refs);
+                        oldFormat = true;
+                    }
+                }
+                if (script != null) {
+                    readClips(script, fmt, eval, parsed, warnings);
+                    used = true;
+                } else if (oldFormat) {
+                    oldScriptMissing = true;
+                    used = true;
+                }
+            } catch (IllegalArgumentException | IOException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IllegalArgumentException("Không đọc được file Excel " + src.fileName() + ": " + e.getMessage(), e);
             }
-            if (script == null) throw new IllegalArgumentException("Không thấy sheet KỊCH BẢN trong file " + fileName);
-            readClips(script, fmt, eval, parsed, warnings);
-        } catch (IllegalArgumentException | IOException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Không đọc được file Excel: " + e.getMessage(), e);
+            if (!used) warnings.add(src.fileName() + ": không nhận ra định dạng – bỏ qua");
+            if (fileName == null && parsed.size() > clipsBefore) fileName = src.fileName();
         }
-        if (parsed.isEmpty()) throw new IllegalArgumentException("Sheet KỊCH BẢN không có dòng nào có MÃ clip");
+        if (parsed.isEmpty()) {
+            if (oldScriptMissing) throw new IllegalArgumentException("Không thấy sheet KỊCH BẢN trong file đã chọn");
+            if (refs.isEmpty() && voice.isEmpty()) {
+                throw new IllegalArgumentException("Không có clip nào: cần sheet KỊCH BẢN (có cột MÃ) hoặc file all-video-prompts.xlsx");
+            }
+            if (projectId == null) {
+                throw new IllegalArgumentException("File chỉ có prompt ảnh tham chiếu / thoại – chọn kèm all-video-prompts.xlsx, "
+                        + "hoặc dùng “Nhập lại vào dự án này”");
+            }
+        }
+        if (fileName == null) fileName = sources.isEmpty() ? "kich-ban.xlsx" : sources.get(0).fileName();
 
         // Mã tham chiếu: định nghĩa trong sheet nhân vật / bối cảnh / đạo cụ + mọi mã được clip dùng
         Map<String, ParsedRef> refMap = new LinkedHashMap<>();
-        for (ParsedRef r : refs) refMap.putIfAbsent(r.code(), r);
+        for (ParsedRef r : refs) {
+            ParsedRef old = refMap.get(r.code());
+            if (old == null) refMap.put(r.code(), r);
+            else if ((old.name() == null && r.name() != null) || (old.description() == null && r.description() != null)) {
+                // cùng mã ở nhiều file (vd reference-prompts.xlsx có prompt, all-video-prompts.xlsx có tên): ghép lại
+                refMap.put(r.code(), new ParsedRef(old.code(), old.name() != null ? old.name() : r.name(),
+                        old.description() != null ? old.description() : r.description(), old.prefix(), old.display(),
+                        old.role(), old.look(), old.outfit(), old.sheetPrompt() != null ? old.sheetPrompt() : r.sheetPrompt()));
+            }
+        }
         for (ParsedClip c : parsed) {
             for (String code : c.refs()) {
                 if (!refMap.containsKey(code)) {
@@ -115,7 +202,7 @@ public class ScriptImportService {
         if (project.getStatus() == ScriptProject.Status.RUNNING) {
             throw new IllegalStateException("Dự án đang chạy – bấm Tạm dừng trước khi nhập lại");
         }
-        project.setSourceFile(fileName);
+        if (!parsed.isEmpty()) project.setSourceFile(cut(fileName, 300));
         project = projects.save(project);
         Models.VideoModel model = Models.video(project.getModel());
         for (ParsedClip c : parsed) {
@@ -132,6 +219,17 @@ public class ScriptImportService {
             if (r.display() != null) names.putIfAbsent(r.prefix(), r.display());
             baseOf.putIfAbsent(r.prefix(), r.code());
         }
+        // Mã dạng CHAR-DANIEL-2: bộ gốc là CHAR-DANIEL-1 (số nhỏ nhất của nhân vật), dù thứ tự xuất hiện thế nào
+        Map<String, Integer> lowest = new LinkedHashMap<>();
+        for (String code : refMap.keySet()) {
+            Matcher hm = HYPHEN_CHAR.matcher(code);
+            if (!hm.matches()) continue;
+            int n = Integer.parseInt(hm.group(2));
+            if (n < lowest.getOrDefault(hm.group(1), Integer.MAX_VALUE)) {
+                lowest.put(hm.group(1), n);
+                baseOf.put(hm.group(1), code);
+            }
+        }
 
         // Upsert mã tham chiếu (giữ ảnh đã gán và prompt người dùng đã sửa)
         for (ParsedRef r : refMap.values()) {
@@ -141,9 +239,18 @@ public class ScriptImportService {
             e.setKind(ScriptReference.kindOf(r.code()));
             if (r.name() != null || e.getName() == null) e.setName(cut(r.name(), 300));
             if (r.description() != null || e.getDescription() == null) e.setDescription(cut(r.description(), 2000));
-            String base = r.prefix() == null ? null : baseOf.get(r.prefix());
+            Matcher hm = HYPHEN_CHAR.matcher(r.code());
+            String prefix = r.prefix() != null ? r.prefix() : hm.matches() ? hm.group(1) : null;
+            String base = prefix == null ? null : baseOf.get(prefix);
             e.setIdentityCode(base != null && !base.equals(r.code()) ? base : null);
-            if (!e.isPromptEdited()) e.setImagePrompt(imagePrompt(r, e.getIdentityCode() != null, names));
+            // Mã chỉ được clip nhắc tới (không mô tả / prompt) thì giữ prompt ảnh đã có, vd từ reference-prompts.xlsx nhập trước
+            // (mã CHAR-X-1 / LOC-8 của bộ file KET QUA chỉ lấy prompt ảnh từ reference-prompts.xlsx)
+            boolean bare = r.sheetPrompt() == null && r.description() == null && r.look() == null && r.outfit() == null;
+            boolean ketQua = r.code().indexOf('-') > 0 && r.code().indexOf('_') < 0;
+            boolean keep = r.sheetPrompt() == null && e.getImagePrompt() != null && (bare || ketQua);
+            if (!e.isPromptEdited() && !keep) {
+                e.setImagePrompt(imagePrompt(r, e.getIdentityCode() != null, names));
+            }
             references.save(e);
         }
 
@@ -183,6 +290,20 @@ public class ScriptImportService {
             e.setWarnings(warn.isEmpty() ? null : warn);
             clips.save(e);
             for (String w : c.warnings()) warnings.add(c.code() + ": " + w);
+        }
+
+        // Thoại tạo ngoài (voice-overlay.xlsx): ghi vào ghi chú clip theo số segment
+        for (Map.Entry<String, String> v : voice.entrySet()) {
+            ScriptClip e = clips.findByProjectIdAndCode(project.getId(), v.getKey()).orElse(null);
+            if (e == null) {
+                warnings.add("Thoại tạo ngoài cho segment " + v.getKey() + ": không có clip này trong dự án");
+                continue;
+            }
+            String old = e.getNote() == null ? "" : e.getNote();
+            int at = old.indexOf(VOICE_TAG);
+            if (at >= 0) old = old.substring(0, at);
+            e.setNote(cut((old.isBlank() ? "" : old.trim() + "\n") + VOICE_TAG + v.getValue(), 2000));
+            clips.save(e);
         }
 
         int matched = scriptService.autoMatchReferences(project.getId());
@@ -296,6 +417,8 @@ public class ScriptImportService {
                 String b = bm.group();
                 if (refs.stream().noneMatch(x -> x.equals(b) || x.startsWith(b + "_"))) bare.add(b);
             }
+            // Nhân vật chỉ có giọng (qua điện thoại / bộ đàm, ngoài hình): "CHAR_ELI's voice …", "the voice of CHAR_ELI" → không cần ảnh
+            bare.removeIf(b -> onlyVoice(prompt, b));
             for (String b : bare) {
                 w.add("Prompt nhắc " + b + " nhưng clip không có ảnh của nhân vật này – kiểm tra có phải lỗi thay chữ "
                         + "(vd. \"street\" → CHAR_STR, \"police\" → CHAR_POL) không");
@@ -363,7 +486,162 @@ public class ScriptImportService {
         }
     }
 
+    // ---------- bộ file "KET QUA": all-video-prompts.xlsx ----------
+
+    private void readSegments(Sheet s, DataFormatter fmt, FormulaEvaluator eval, List<ParsedClip> out, List<ParsedRef> refsOut,
+                              List<String> warnings) {
+        int header = headerWith(s, fmt, eval, h -> h.containsKey("REFERENCE IDS") || h.containsKey("STT SEGMENT"));
+        Map<String, Integer> col = headers(s.getRow(header), fmt, eval);
+        Integer cCode = findContains(col, "STT"), cPrompt = findContains(col, "PROMPT"), cRefs = findContains(col, "REFERENCE IDS");
+        Integer cDur = findContains(col, "THỜI LƯỢNG", "DURATION"), cVi = findContains(col, "TÓM TẮT"), cNote = findContains(col, "CHÚ THÍCH");
+        if (cCode == null || cPrompt == null) {
+            throw new IllegalArgumentException("Sheet " + s.getSheetName() + " cần cột STT segment và Nội dung prompt");
+        }
+        Set<String> seen = new LinkedHashSet<>();
+        Map<String, String> bindings = new LinkedHashMap<>();
+        Map<String, String> notes = new LinkedHashMap<>();
+        for (int r = header + 1; r <= s.getLastRowNum(); r++) {
+            Row row = s.getRow(r);
+            if (row == null) continue;
+            String code = segmentCode(text(row, cCode, fmt, eval));
+            if (code.isEmpty()) continue;
+            String prompt = LEADING_NUM.matcher(text(row, cPrompt, fmt, eval).trim()).replaceFirst("");
+            if (!CODE.matcher(code).matches()) {
+                warnings.add("Dòng " + (r + 1) + ": STT segment không hợp lệ \"" + code + "\" – bỏ qua");
+                continue;
+            }
+            if (!seen.add(code)) {
+                warnings.add("Dòng " + (r + 1) + ": trùng segment " + code + " – bỏ qua dòng sau");
+                continue;
+            }
+            if (prompt.isEmpty()) {
+                warnings.add(code + ": prompt trống – bỏ qua");
+                continue;
+            }
+            List<String> w = new ArrayList<>();
+            List<String> refs = new ArrayList<>();
+            for (String x : text(row, cRefs, fmt, eval).split("[;,\\n]+")) {
+                String c = x.trim().replaceFirst("^@", "");
+                if (c.isEmpty()) continue;
+                if (!CODE.matcher(c).matches()) w.add("Mã tham chiếu không hợp lệ: " + c);
+                else if (!refs.contains(c)) refs.add(c);
+            }
+            if (refs.isEmpty()) w.add("Clip không có ảnh tham chiếu");
+
+            int duration = 0;
+            String d = text(row, cDur, fmt, eval).replace(',', '.').trim();
+            try {
+                if (!d.isEmpty()) duration = (int) Math.round(Double.parseDouble(d));
+            } catch (NumberFormatException ignored) {
+                w.add("Cột Thời lượng không phải số: " + d);
+            }
+            Matcher dm = REQUESTED_DURATION.matcher(prompt);
+            if (dm.find()) {
+                int pd = (int) Math.round(Double.parseDouble(dm.group(1)));
+                if (duration == 0) duration = pd;
+                else if (pd != duration) w.add("Cột Thời lượng = " + duration + "s nhưng prompt ghi " + pd + "s");
+            }
+            if (duration == 0) duration = 15;
+            if (duration < 4) {
+                w.add("Thời lượng " + duration + "s < 4s tối thiểu của Seedance – tăng lên 4s");
+                duration = 4;
+            }
+
+            Matcher bm = BINDING.matcher(prompt);
+            while (bm.find()) bindings.putIfAbsent(bm.group(1), bm.group(2).trim());
+            Matcher am = ANNOTATION.matcher(text(row, cNote, fmt, eval));
+            while (am.find()) notes.putIfAbsent(am.group(1), am.group(2));
+
+            out.add(new ParsedClip(code, null, null, duration, refs, prompt, blankToNull(text(row, cVi, fmt, eval)), null, null, w));
+        }
+        // Tên mã: lấy từ chú thích ID (nhân vật) hoặc dòng REFERENCE BINDING trong prompt (bối cảnh / đạo cụ)
+        Set<String> codes = new LinkedHashSet<>(notes.keySet());
+        codes.addAll(bindings.keySet());
+        for (String code : codes) {
+            if (!CODE.matcher(code).matches()) continue;
+            String note = notes.get(code);
+            refsOut.add(new ParsedRef(code, note != null ? annotationName(note) : bindings.get(code), note, null));
+        }
+    }
+
+    // ---------- bộ file "KET QUA": reference-prompts.xlsx ----------
+
+    private void readReferencePrompts(Sheet s, DataFormatter fmt, FormulaEvaluator eval, List<ParsedRef> out) {
+        int header = headerWith(s, fmt, eval, h -> h.containsKey("REFERENCE ID"));
+        Map<String, Integer> col = headers(s.getRow(header), fmt, eval);
+        Integer cCode = find(col, "REFERENCE ID"), cPrompt = findContains(col, "PROMPT"), cNote = findContains(col, "CHÚ THÍCH");
+        List<ParsedRef> read = new ArrayList<>();
+        for (int r = header + 1; r <= s.getLastRowNum(); r++) {
+            Row row = s.getRow(r);
+            if (row == null) continue;
+            String code = text(row, cCode, fmt, eval).trim();
+            if (code.isEmpty() || !CODE.matcher(code).matches()) continue;
+            String prompt = LEADING_NUM.matcher(text(row, cPrompt, fmt, eval).trim()).replaceFirst("");
+            String note = null;
+            Matcher am = ANNOTATION.matcher(text(row, cNote, fmt, eval));
+            while (am.find()) if (am.group(1).equals(code)) note = am.group(2);
+            read.add(new ParsedRef(code, note == null ? null : annotationName(note), note, blankToNull(prompt)));
+        }
+        out.addAll(0, read); // đứng trước mã chỉ có tên (từ all-video-prompts) để giữ prompt và thứ tự này
+    }
+
+    // ---------- bộ file "KET QUA": voice-overlay.xlsx ----------
+
+    private void readVoice(Sheet s, DataFormatter fmt, FormulaEvaluator eval, Map<String, String> out) {
+        int header = headerWith(s, fmt, eval, h -> h.containsKey("ID SEGMENT"));
+        Map<String, Integer> col = headers(s.getRow(header), fmt, eval);
+        Integer cId = find(col, "ID SEGMENT"), cText = null;
+        for (Map.Entry<String, Integer> e : col.entrySet()) if (cText == null && e.getKey().contains("THOẠI")) cText = e.getValue();
+        for (int r = header + 1; r <= s.getLastRowNum(); r++) {
+            Row row = s.getRow(r);
+            if (row == null) continue;
+            String id = text(row, cId, fmt, eval).trim();
+            String line = text(row, cText, fmt, eval).trim();
+            if (id.isEmpty() || line.isEmpty()) continue;
+            Matcher m = TRAILING_NUM.matcher(id);
+            String code = m.find() ? segmentCode(m.group(1)) : id;
+            out.merge(code, line, (a, b) -> a + " / " + b);
+        }
+    }
+
+    /** Mọi lần prompt nhắc mã nhân vật này đều là giọng nói (CHAR_X's voice / voice of CHAR_X), không phải người trên hình. */
+    static boolean onlyVoice(String prompt, String code) {
+        String q = Pattern.quote(code);
+        int all = 0, voice = 0;
+        Matcher m = Pattern.compile("\\b" + q + "\\b(?!_)").matcher(prompt);
+        while (m.find()) all++;
+        Matcher v = Pattern.compile("(?i)\\b" + q + "(?:'s|’s)\\s+(?:\\w+\\s+){0,2}voice\\b|\\bvoice\\s+of\\s+" + q + "\\b").matcher(prompt);
+        while (v.find()) voice++;
+        return all > 0 && voice >= all;
+    }
+
+    /** STT segment "1" / "1.0" → mã clip "001" (sắp xếp đúng, làm lại theo "001-005" được). */
+    static String segmentCode(String raw) {
+        String t = raw == null ? "" : raw.trim().replaceFirst("\\.0+$", "");
+        return t.matches("\\d{1,3}") ? String.format("%03d", Integer.parseInt(t)) : t;
+    }
+
+    /** "Bitsy Hollister · trang phục: society cocktail dress · màu: …" → "Bitsy Hollister – society cocktail dress". */
+    static String annotationName(String note) {
+        String[] parts = note.split("\\s*·\\s*");
+        String name = parts[0].trim();
+        for (String p : parts) {
+            if (p.toLowerCase(Locale.ROOT).startsWith("trang phục:")) name += " – " + p.substring(p.indexOf(':') + 1).trim();
+        }
+        return name;
+    }
+
     // ---------- helpers ----------
+
+    /** Dòng tiêu đề (trong 30 dòng đầu) thoả điều kiện trên tập tên cột viết hoa; -1 nếu không có. */
+    private static int headerWith(Sheet s, DataFormatter fmt, FormulaEvaluator eval,
+                                  java.util.function.Predicate<Map<String, Integer>> test) {
+        for (int r = s.getFirstRowNum(); r <= Math.min(s.getLastRowNum(), 30); r++) {
+            Row row = s.getRow(r);
+            if (row != null && r >= 0 && test.test(headers(row, fmt, eval))) return r;
+        }
+        return -1;
+    }
 
     private static int findHeader(Sheet s, DataFormatter fmt, FormulaEvaluator eval, String name) {
         for (int r = s.getFirstRowNum(); r <= Math.min(s.getLastRowNum(), 30); r++) {

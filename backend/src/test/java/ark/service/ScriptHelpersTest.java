@@ -68,4 +68,24 @@ class ScriptHelpersTest {
         assertFalse(AssetLibraryService.nameMatchesCode("CHAR_YVO_NAVYTEE_01_back.png", code));
         assertFalse(AssetLibraryService.nameMatchesCode(null, code));
     }
+
+    @Test
+    void ketQuaFormatHelpers() {
+        assertEquals("001", ScriptImportService.segmentCode("1"));
+        assertEquals("029", ScriptImportService.segmentCode("29.0"));
+        assertEquals("207", ScriptImportService.segmentCode("207"));
+        assertEquals("Bitsy Hollister – society cocktail dress", ScriptImportService.annotationName(
+                "Bitsy Hollister · trang phục: society cocktail dress · màu: dress: fuchsia silk · mã cũ: CHAR-BITSY"));
+        assertEquals(ark.entity.ScriptReference.Kind.CHARACTER, ark.entity.ScriptReference.kindOf("CHAR-DANIEL-2"));
+        assertEquals(ark.entity.ScriptReference.Kind.LOCATION, ark.entity.ScriptReference.kindOf("LOC-8"));
+        assertEquals(ark.entity.ScriptReference.Kind.PROP, ark.entity.ScriptReference.kindOf("PROP-2"));
+    }
+
+    @Test
+    void voiceOnlyCharacterNeedsNoImage() {
+        assertTrue(ScriptImportService.onlyVoice("CHAR_ELI's voice over the phone says: {Coming.}", "CHAR_ELI"));
+        assertTrue(ScriptImportService.onlyVoice("The voice of CHAR_LOR continues.", "CHAR_LOR"));
+        assertFalse(ScriptImportService.onlyVoice("CHAR_LOR's voice says hi. CHAR_LOR walks in.", "CHAR_LOR"));
+        assertFalse(ScriptImportService.onlyVoice("Walk down the CHAR_STR at night", "CHAR_STR"));
+    }
 }

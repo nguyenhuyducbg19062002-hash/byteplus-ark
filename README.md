@@ -86,6 +86,11 @@ Luồng giống Flow Batch Studio nhưng chạy ngay trong backend (không cần
    Nhập lại cùng file thì cập nhật theo mã clip, giữ ảnh đã gán; clip đổi prompt / tham chiếu quay về chờ chạy.
    Khi nhập, app cảnh báo: mã thiếu, quá số ảnh của model, thứ tự ảnh lệch với `REFERENCE ORDER`, và mã nhân vật “trần”
    trong prompt mà clip không có ảnh (thường là lỗi thay chữ, vd `street` → `CHAR_STR`).
+   **Bộ file kết quả của tool viết kịch bản** (thư mục kiểu `KET QUA - IDE 21`): bấm **Nhập thư mục kết quả** và chọn cả thư mục,
+   hoặc **Nhập Excel mới** rồi chọn nhiều file cùng lúc. App đọc `all-video-prompts.xlsx` (mỗi dòng = 1 clip, mã `001`…, cột Reference IDs
+   `CHAR-DANIEL-1; LOC-8; PROP-2` theo đúng thứ tự ảnh, Thời lượng, Tóm tắt tiếng Việt), `reference-prompts.xlsx` (prompt tạo ảnh từng mã;
+   `CHAR-X-2…` tự dùng ảnh `CHAR-X-1` làm gốc khuôn mặt) và `voice-overlay.xlsx` (thoại lồng tiếng sau, ghi vào ghi chú clip `E01-29` → `029`).
+   Ảnh trong `Ảnh tham chiếu/` (tên file = mã, vd `CHAR-DANIEL-1.jpg`) được mở sẵn trong hộp thoại Nhập thư mục ảnh; bỏ qua `Ảnh chờ duyệt/`.
 2. **Gán ảnh** cho từng mã: **tạo bằng AI** (Seedream, prompt tự sinh từ ngoại hình / trang phục / mô tả trong Excel,
    sửa được từng mã; nhân vật nhiều bộ đồ thì bộ đầu tạo trước và được gửi kèm làm tham chiếu khuôn mặt cho các bộ sau;
    nếu sheet có cột chứa chữ `PROMPT` thì dùng prompt đó), tải lên, chọn từ thư viện, đặt tên file đúng mã rồi bấm “Tự ghép theo tên file”, hoặc **Nhập thư mục ảnh**

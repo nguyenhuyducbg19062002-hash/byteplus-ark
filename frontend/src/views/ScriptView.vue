@@ -62,6 +62,10 @@ const pickerFor = ref(null)
 const promptFor = ref(null)
 const promptDraft = ref('')
 const folderImport = ref(false)
+const folderImportFiles = ref([])
+const excelInput = ref(null)
+const resultFolderInput = ref(null)
+let excelIntoCurrent = false
 
 const omniModels = computed(() => models.video.filter((m) => m.omni))
 const settingsModel = computed(() => omniModels.value.find((m) => m.id === settings.model))
@@ -186,11 +190,51 @@ watch(
 
 // ---------- dự án ----------
 
-async function importExcel(file, intoCurrent) {
+// Chọn một hoặc nhiều file .xlsx (vd all-video-prompts + reference-prompts + voice-overlay) rồi nhập một lần
+function pickExcel(intoCurrent) {
+  excelIntoCurrent = intoCurrent
+  excelInput.value.click()
+}
+
+function onExcelPicked(e) {
+  const files = Array.from(e.target.files || [])
+  e.target.value = ''
+  if (files.length) importExcel(files, excelIntoCurrent)
+}
+
+const XLSX = /\.xlsx$/i
+const REF_IMAGE = /\.(jpe?g|png|webp|bmp)$/i
+// thư mục ảnh chưa dùng được: ảnh chờ duyệt / lỗi
+const SKIP_DIR = /(^|\/)(ảnh chờ duyệt|anh cho duyet|lỗi|loi|_cu|_cho-duyet)(\/|$)/i
+
+/**
+ * Nhập cả thư mục kết quả của tool viết kịch bản (vd "KET QUA - IDE 21"): mọi file .xlsx trong thư mục gốc được nhập
+ * thành dự án, sau đó ảnh trong "Ảnh tham chiếu" (tên file = mã, vd CHAR-DANIEL-1.jpg) được mở sẵn để ghép mã và tải lên.
+ */
+async function onResultFolderPicked(e, intoCurrent) {
+  const all = Array.from(e.target.files || []).map((f) => ({ file: f, path: f.webkitRelativePath || f.name }))
+  e.target.value = ''
+  const depth = (p) => p.split('/').length
+  const excels = all.filter((x) => XLSX.test(x.file.name) && !x.file.name.startsWith('~$') && depth(x.path) <= 2).map((x) => x.file)
+  const images = all.filter((x) => REF_IMAGE.test(x.file.name) && !SKIP_DIR.test(x.path.normalize('NFC')))
+  if (!excels.length) {
+    ElMessage.warning('Thư mục không có file .xlsx nào (cần all-video-prompts.xlsx hoặc file kịch bản)')
+    return
+  }
+  const ok = await importExcel(excels, intoCurrent)
+  if (ok && images.length) {
+    folderImportFiles.value = images
+    tab.value = 'refs'
+    folderImport.value = true
+  }
+}
+
+async function importExcel(fileOrFiles, intoCurrent) {
+  const files = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles]
   importing.value = true
   try {
     const fd = new FormData()
-    fd.append('file', file)
+    for (const f of files) fd.append('files', f)
     if (intoCurrent && currentId.value) fd.append('projectId', currentId.value)
     const r = await api.post('/script-projects/import', fd, { timeout: 300000 })
     importResult.value = r
@@ -199,6 +243,10 @@ async function importExcel(file, intoCurrent) {
     await refresh()
     refs.run()
     if (r.project.refsMissing) tab.value = 'refs'
+    if (r.warnings?.length) console.info('Cảnh báo khi nhập:', r.warnings)
+    return true
+  } catch {
+    return false
   } finally {
     importing.value = false
   }
@@ -489,12 +537,15 @@ function downloadZip(what) {
           </div>
         </el-option>
       </el-select>
-      <el-upload :show-file-list="false" accept=".xlsx" :auto-upload="false" :on-change="(f) => importExcel(f.raw, false)">
-        <el-button type="primary" :loading="importing"><el-icon><Upload /></el-icon>&nbsp;Nhập Excel mới</el-button>
-      </el-upload>
-      <el-upload v-if="project" :show-file-list="false" accept=".xlsx" :auto-upload="false" :on-change="(f) => importExcel(f.raw, true)">
-        <el-button :loading="importing" :disabled="project.status === 'RUNNING'"><el-icon><RefreshRight /></el-icon>&nbsp;Nhập lại vào dự án này</el-button>
-      </el-upload>
+      <input ref="excelInput" type="file" multiple accept=".xlsx" class="hidden" @change="onExcelPicked" />
+      <input ref="resultFolderInput" type="file" webkitdirectory directory multiple class="hidden" @change="(e) => onResultFolderPicked(e, false)" />
+      <el-tooltip content="Chọn được nhiều file cùng lúc, vd all-video-prompts.xlsx + reference-prompts.xlsx + voice-overlay.xlsx" placement="bottom">
+        <el-button type="primary" :loading="importing" @click="pickExcel(false)"><el-icon><Upload /></el-icon>&nbsp;Nhập Excel mới</el-button>
+      </el-tooltip>
+      <el-tooltip content="Chọn cả thư mục kết quả (vd KET QUA - IDE 21): nhập mọi file Excel rồi ghép luôn ảnh trong “Ảnh tham chiếu”" placement="bottom">
+        <el-button type="success" plain :loading="importing" @click="resultFolderInput.click()"><el-icon><FolderOpened /></el-icon>&nbsp;Nhập thư mục kết quả</el-button>
+      </el-tooltip>
+      <el-button v-if="project" :loading="importing" :disabled="project.status === 'RUNNING'" @click="pickExcel(true)"><el-icon><RefreshRight /></el-icon>&nbsp;Nhập lại vào dự án này</el-button>
       <span v-if="project" class="hint ml-auto">File: {{ project.sourceFile }} · tạo {{ formatTime(project.createdAt) }} · video lưu ở output/videos/{{ project.folder }}</span>
     </section>
 
@@ -860,7 +911,7 @@ function downloadZip(what) {
                 <el-icon><UploadFilled /></el-icon>&nbsp;Đẩy {{ vpPending.length }} ảnh nhân vật lên Virtual Portrait
               </el-button>
               <el-button plain @click="downloadZip('images')"><el-icon><Download /></el-icon>&nbsp;Tải hết ảnh về (.zip)</el-button>
-              <el-button type="success" plain @click="folderImport = true"><el-icon><FolderOpened /></el-icon>&nbsp;Nhập thư mục ảnh</el-button>
+              <el-button type="success" plain @click="(folderImportFiles = []), (folderImport = true)"><el-icon><FolderOpened /></el-icon>&nbsp;Nhập thư mục ảnh</el-button>
               <el-button :loading="busy === 'auto'" @click="autoMatch"><el-icon><Connection /></el-icon>&nbsp;Tự ghép theo tên file</el-button>
               <el-button type="primary" plain :loading="busy === 'vpmatch'" @click="matchVpAssets"><el-icon><Connection /></el-icon>&nbsp;Ghép asset VP theo tên</el-button>
               <p class="hint max-w-3xl">
@@ -946,7 +997,7 @@ function downloadZip(what) {
       </template>
     </el-dialog>
 
-    <RefFolderImport v-if="project" v-model="folderImport" :project-id="project.id" :references="refs.data.value" @done="refs.run(), refresh(false)" />
+    <RefFolderImport v-if="project" v-model="folderImport" :project-id="project.id" :references="refs.data.value" :initial-files="folderImportFiles" @done="refs.run(), refresh(false)" />
 
     <LibraryPicker :model-value="!!pickerFor" kind="image" :multiple="false" @update:model-value="(v) => !v && (pickerFor = null)" @pick="onPicked" />
   </div>

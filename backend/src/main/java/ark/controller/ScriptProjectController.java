@@ -48,16 +48,40 @@ public class ScriptProjectController {
         return service.list();
     }
 
-    /** Nhập file Excel thành dự án mới, hoặc nhập lại vào dự án có sẵn (projectId). */
+    /**
+     * Nhập file Excel thành dự án mới, hoặc nhập lại vào dự án có sẵn (projectId). Nhận một file ({@code file}) hoặc
+     * nhiều file cùng lúc ({@code files}), vd bộ all-video-prompts.xlsx + reference-prompts.xlsx + voice-overlay.xlsx.
+     */
     @PostMapping("/script-projects/import")
-    public ResponseEntity<ScriptImportResult> importExcel(@RequestParam("file") MultipartFile file,
+    public ResponseEntity<ScriptImportResult> importExcel(@RequestParam(value = "file", required = false) MultipartFile file,
+                                                          @RequestParam(value = "files", required = false) List<MultipartFile> files,
                                                           @RequestParam(required = false) Long projectId,
                                                           @RequestParam(required = false) String name) throws IOException {
-        String fn = file.getOriginalFilename() == null ? "kich-ban.xlsx" : file.getOriginalFilename();
-        if (!fn.toLowerCase().endsWith(".xlsx")) throw new IllegalArgumentException("Chỉ nhận file Excel .xlsx");
-        try (InputStream in = file.getInputStream()) {
-            ScriptImportResult r = importer.importExcel(in, fn, projectId, name);
+        List<MultipartFile> all = new java.util.ArrayList<>();
+        if (file != null) all.add(file);
+        if (files != null) all.addAll(files);
+        all.removeIf(f -> f == null || f.isEmpty());
+        if (all.isEmpty()) throw new IllegalArgumentException("Chưa chọn file Excel");
+        List<InputStream> opened = new java.util.ArrayList<>();
+        try {
+            List<ScriptImportService.Source> sources = new java.util.ArrayList<>();
+            for (MultipartFile f : all) {
+                String fn = f.getOriginalFilename() == null ? "kich-ban.xlsx" : f.getOriginalFilename();
+                if (!fn.toLowerCase().endsWith(".xlsx")) throw new IllegalArgumentException("Chỉ nhận file Excel .xlsx: " + fn);
+                InputStream in = f.getInputStream();
+                opened.add(in);
+                sources.add(new ScriptImportService.Source(in, fn.replaceFirst("^.*[/\\\\]", "")));
+            }
+            ScriptImportResult r = importer.importFiles(sources, projectId, name);
             return ResponseEntity.status(projectId == null ? HttpStatus.CREATED : HttpStatus.OK).body(r);
+        } finally {
+            for (InputStream in : opened) {
+                try {
+                    in.close();
+                } catch (IOException ignored) {
+                    // đã đọc xong
+                }
+            }
         }
     }
 
