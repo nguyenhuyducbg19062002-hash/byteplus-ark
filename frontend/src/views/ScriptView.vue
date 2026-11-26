@@ -53,7 +53,7 @@ const redoDone = ref(false)
 const importing = ref(false)
 const importResult = ref(null)
 const busy = ref('')
-const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', promptModel: '', autoApproveImages: false, refSaveMode: 'PROJECT', refSaveDir: '', provider: 'BYTEPLUS', botsdModel: 'sd25', botsdResolution: 'original', botsdRealPerson: 'OFF' })
+const settings = reactive({ model: '', resolution: '', ratio: '16:9', generateAudio: true, maxParallel: 3, maxAttempts: 3, imageModel: '', imageSize: '', promptModel: '', autoApproveImages: false, refSaveMode: 'PROJECT', refSaveDir: '', provider: 'BYTEPLUS', botsdModel: 'sd25', botsdResolution: 'original', botsdRealPerson: 'OFF', api888Model: 'seedance2.0-933-c5-fast' })
 const settingsErrors = ref({})
 const redo = reactive({ codes: '', note: '' })
 const expanded = ref([])
@@ -77,6 +77,19 @@ const BOTSD_MODELS = [
   { id: 'muse', name: 'Muse AI', hint: '5/10s · 2/4P · tối đa 1 ảnh, chỉ 16:9 / 9:16' }
 ]
 const botsdModelName = (id) => BOTSD_MODELS.find((m) => m.id === id)?.name || id
+// Nguồn thứ ba: 888API (888api.xin) – danh sách model lấy từ backend (giới hạn thời lượng / tỉ lệ / số ảnh)
+const api888Models = ref([])
+const api888Model = computed(() => api888Models.value.find((m) => m.id === settings.api888Model))
+async function loadApi888Models() {
+  if (api888Models.value.length) return
+  try {
+    api888Models.value = await api.get('/settings/api888/models', { silent: true })
+  } catch {
+    api888Models.value = []
+  }
+}
+watch(() => settings.provider, (p) => p === 'API888' && loadApi888Models(), { immediate: true })
+const providerRaw = computed(() => settings.provider === 'BOTSD' || settings.provider === 'API888')
 const imageModel = computed(() => models.image.find((m) => m.id === settings.imageModel))
 const IMAGE_STATUS = {
   PENDING: { status: 'queued', label: 'Chờ tạo ảnh' },
@@ -180,7 +193,7 @@ function pick(p) {
     maxAttempts: p.maxAttempts, imageModel: p.imageModel, imageSize: p.imageSize, promptModel: p.promptModel, autoApproveImages: p.autoApproveImages,
     refSaveMode: p.refSaveMode || 'PROJECT', refSaveDir: p.refSaveDir || '',
     provider: p.provider || 'BYTEPLUS', botsdModel: p.botsdModel || 'sd25', botsdResolution: p.botsdResolution || 'original',
-    botsdRealPerson: p.botsdRealPerson || 'OFF'
+    botsdRealPerson: p.botsdRealPerson || 'OFF', api888Model: p.api888Model || 'seedance2.0-933-c5-fast'
   }
 }
 watch(
@@ -658,7 +671,7 @@ function downloadZip(what) {
             <el-collapse-item name="cfg">
               <template #title>
                 <span class="text-sm font-medium">Cấu hình chạy</span>
-                <span class="hint ml-3"><template v-if="project.provider === 'BOTSD'"><b class="text-emerald-600 dark:text-emerald-400">BOTSD</b> · {{ botsdModelName(project.botsdModel) }} · {{ project.botsdResolution }}</template><template v-else>BytePlus · {{ settingsModel?.name || project.model }} · {{ project.resolution }}</template> · {{ project.ratio }} · song song {{ project.maxParallel }} · thử lại {{ project.maxAttempts }} lần</span>
+                <span class="hint ml-3"><template v-if="project.provider === 'BOTSD'"><b class="text-emerald-600 dark:text-emerald-400">BOTSD</b> · {{ botsdModelName(project.botsdModel) }} · {{ project.botsdResolution }}</template><template v-else-if="project.provider === 'API888'"><b class="text-amber-600 dark:text-amber-400">888API</b> · {{ project.api888Model }}</template><template v-else>BytePlus · {{ settingsModel?.name || project.model }} · {{ project.resolution }}</template> · {{ project.ratio }} · song song {{ project.maxParallel }} · thử lại {{ project.maxAttempts }} lần</span>
               </template>
               <div class="mb-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
                 <div class="sm:col-span-2">
@@ -666,8 +679,21 @@ function downloadZip(what) {
                   <el-radio-group v-model="settings.provider">
                     <el-radio-button value="BYTEPLUS">BytePlus</el-radio-button>
                     <el-radio-button value="BOTSD">BOTSD</el-radio-button>
+                    <el-radio-button value="API888">888API</el-radio-button>
                   </el-radio-group>
                 </div>
+                <template v-if="settings.provider === 'API888'">
+                  <div class="sm:col-span-3">
+                    <label class="field-label">Model 888API</label>
+                    <el-select v-model="settings.api888Model" class="w-full" filterable allow-create default-first-option
+                      placeholder="Chọn hoặc gõ mã model">
+                      <el-option v-for="m in api888Models" :key="m.id" :label="m.id" :value="m.id">
+                        <span>{{ m.id }}</span>
+                        <span class="hint ml-2">{{ m.durations ? m.durations.join('/') : m.min + '–' + m.max }}s · {{ m.resolution }} · ≤{{ m.maxImages }} ảnh · {{ m.note }}</span>
+                      </el-option>
+                    </el-select>
+                  </div>
+                </template>
                 <template v-if="settings.provider === 'BOTSD'">
                   <div class="sm:col-span-2">
                     <label class="field-label">Model BOTSD</label>
@@ -693,19 +719,27 @@ function downloadZip(what) {
                   </div>
                 </template>
               </div>
+              <p v-if="settings.provider === 'API888'" class="hint mb-4">
+                888API: dùng ảnh trong thư viện của chính dự án này (đúng thứ tự Ảnh 1, 2…), không cần đẩy Virtual Portrait. 888API chỉ nhận link
+                ảnh nên app tự tải ảnh lên chỗ để tạm (Cài đặt › 888API) dưới thư mục của dự án, mỗi ảnh một lần.
+                <template v-if="api888Model">Model này: {{ api888Model.durations ? api888Model.durations.join(' / ') : api888Model.min + '–' + api888Model.max }}s
+                  (clip dài hơn bị cắt về mức tối đa), tỉ lệ {{ api888Model.ratios.join(', ') }}, tối đa {{ api888Model.maxImages }} ảnh.</template>
+                888API không có lệnh huỷ – dừng clip chỉ ngừng theo dõi. Không dùng “Tạo âm thanh” và model BytePlus bên dưới.
+              </p>
               <p v-if="settings.provider === 'BOTSD'" class="hint mb-4">
                 BOTSD: ảnh tham chiếu gửi thẳng từ máy (không cần Virtual Portrait), tính bằng Point BOTSD (đăng nhập ở Cài đặt › BOTSD).
                 Thời lượng clip làm tròn lên 5 / 10 / 15 / 30s. BOTSD không có lệnh huỷ – dừng clip chỉ ngừng theo dõi, Point đã trừ.
                 Không dùng “Tạo âm thanh” và model / độ phân giải BytePlus bên dưới.
               </p>
               <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
-                <div v-if="settings.provider !== 'BOTSD'" class="sm:col-span-2">
+                <div v-if="!providerRaw" class="sm:col-span-2">
                   <label class="field-label">Model</label>
                   <el-select v-model="settings.model" class="w-full">
                     <el-option v-for="m in omniModels" :key="m.id" :label="m.name" :value="m.id" />
                   </el-select>
                 </div>
-                <div v-if="settings.provider !== 'BOTSD'">
+                <div v-if="!providerRaw">
+
                   <label class="field-label">Độ phân giải</label>
                   <el-select v-model="settings.resolution" class="w-full">
                     <el-option v-for="r in settingsModel?.resolutions || []" :key="r" :label="r" :value="r" />

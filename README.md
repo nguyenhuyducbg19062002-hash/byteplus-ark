@@ -135,6 +135,25 @@ BOTSD không có lệnh huỷ: dừng clip chỉ ngừng theo dõi.
 
 API: `POST /api/v1/settings/botsd/login`, `GET /api/v1/settings/botsd/status`, `DELETE /api/v1/settings/botsd`.
 
+## Nguồn tạo video 888API (888api.xin)
+
+Nguồn thứ ba, theo tài liệu https://888api.xin/docs (`POST /v1/videos`, `GET /v1/videos/{id}`, `GET /v1/videos/{id}/content`, Bearer key):
+1. **Cài đặt › 888API**: dán API key `sk-…` (tạo ở 888api.xin › Bảng điều khiển › 令牌) → **Lưu** (xem số dư + model key dùng được).
+   Key chỉ lưu ở `config.properties` (`api888_key`).
+2. Chọn **chỗ để ảnh tham chiếu tạm**: 888API chỉ nhận *link HTTPS*, không nhận file / base64. Mặc định **TOS BytePlus** (bucket riêng tư
+   app tự tạo, cần AK/SK + đã bật TOS, link có chữ ký 48 giờ) hoặc **Litterbox** (miễn phí, link công khai tự xoá sau 72 giờ).
+   Ảnh để dưới `ark-studio/888/<thư mục dự án>/`, mỗi ảnh tải lên một lần rồi dùng lại cho mọi clip. Không đẩy Virtual Portrait.
+3. **Kịch bản › Cấu hình chạy › Nguồn tạo video = 888API**, chọn model (danh sách sẵn hoặc gõ mã model khác). Clip dùng đúng ảnh trong
+   thư viện của dự án đó theo thứ tự Ảnh 1, 2…; thời lượng kẹp theo model (vd 4–15s, `seedance2.0-933` chỉ 10/15s); gửi cả `duration`
+   và `seconds`. Task ID lưu dạng `888:task_…` – backend khởi động lại thì theo dõi tiếp, không gửi lại.
+
+Xử lý lỗi: 401/403 key sai / chưa có quyền model, 402 / `quota is not enough` → tạm dừng dự án; 429 → chờ `Retry-After`;
+`REFERENCE_RELAY_BUSY` / 404 / 5xx khi xem tiến độ → thử lại; 400 khác → lỗi clip. Mất kết nối / 500/502/504 lúc **gửi** thì tạm dừng
+dự án (tài liệu yêu cầu không tự gửi lại khi chưa chắc task đã được tạo – xem Nhật ký trên console rồi bấm Chạy). Không có lệnh huỷ.
+
+API: `PUT /api/v1/settings/api888` `{key, imageHost}`, `GET /api/v1/settings/api888/status`, `GET /api/v1/settings/api888/models`,
+`DELETE /api/v1/settings/api888`.
+
 ## REST API của backend
 
 | Method | Path | Mô tả |

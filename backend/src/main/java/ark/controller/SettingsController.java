@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 public class SettingsController {
     private final SettingsService settingsService;
     private final ark.service.BotsdService botsd;
+    private final ark.service.Api888Service api888;
 
     @GetMapping
     public SettingsDto get() {
@@ -52,7 +53,34 @@ public class SettingsController {
         return botsd.status();
     }
 
+    /** Lưu 888API {key?, imageHost?} (key để trống / còn dạng che = giữ key cũ); trả về số dư nếu đã có key. */
+    @PutMapping("/api888")
+    public java.util.Map<String, Object> api888Save(@RequestBody java.util.Map<String, String> body) throws Exception {
+        api888.save(body.get("key"), body.get("imageHost"));
+        return api888.configured() ? api888.status() : java.util.Map.of();
+    }
+
+    /** Số dư + model 888API key nhìn thấy. */
+    @GetMapping("/api888/status")
+    public java.util.Map<String, Object> api888Status() throws Exception {
+        return api888.status();
+    }
+
+    /** Xoá API key 888API trên máy này. */
+    @DeleteMapping("/api888")
+    public org.springframework.http.ResponseEntity<Void> api888Clear() throws Exception {
+        api888.clear();
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
+    /** Danh sách model 888API app biết (giới hạn thời lượng / tỉ lệ / số ảnh). */
+    @GetMapping("/api888/models")
+    public java.util.List<ark.service.Api888Service.Model> api888Models() {
+        return ark.service.Api888Service.MODELS;
+    }
+
     /** Đăng xuất BOTSD: xoá token và mật khẩu đã lưu (giữ tên đăng nhập). */
+
     @DeleteMapping("/botsd")
     public org.springframework.http.ResponseEntity<Void> botsdLogout() throws Exception {
         botsd.logout();

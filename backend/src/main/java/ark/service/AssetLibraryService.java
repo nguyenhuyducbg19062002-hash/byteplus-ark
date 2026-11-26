@@ -187,6 +187,15 @@ public class AssetLibraryService {
      */
     public String publicUrl(GeneratedFile f, java.util.function.Consumer<String> log) throws Exception {
         if (f.isSourceUrlValid()) return f.getSourceUrl();
+        return tosUrl(f, "ark-studio/" + java.time.LocalDate.now(), java.time.Duration.ofHours(6), log);
+    }
+
+    /**
+     * Tải file trên máy lên bucket TOS riêng tư của app (tự tạo lần đầu) dưới thư mục prefix, trả về URL có chữ ký
+     * sống trong ttl (TOS cho tối đa 7 ngày). Không đụng tới Virtual Portrait.
+     */
+    public String tosUrl(GeneratedFile f, String prefix, java.time.Duration ttl, java.util.function.Consumer<String> log) throws Exception {
+        if (!hasKeys()) throw new IllegalStateException("Chưa nhập AK/SK BytePlus (Cài đặt) nên không tải được ảnh lên TOS");
         Path p = fileLibrary.pathOf(f);
         if (!java.nio.file.Files.isRegularFile(p)) throw new IllegalStateException(f.getName() + " không còn trên máy");
         String known = tosUnavailable();
@@ -202,13 +211,13 @@ public class AssetLibraryService {
             tosErrorAt = System.currentTimeMillis();
             throw new IllegalStateException(hint, e);
         }
-        String key = "ark-studio/" + java.time.LocalDate.now() + "/" + f.getId() + "_" + f.getName().replaceAll("[^A-Za-z0-9._-]", "_");
+        String key = prefix + "/" + f.getId() + "_" + f.getName().replaceAll("[^A-Za-z0-9._-]", "_");
         String name = f.getName().toLowerCase(java.util.Locale.ROOT);
         String type = name.endsWith(".png") ? "image/png" : name.endsWith(".webp") ? "image/webp" : name.endsWith(".mp4") ? "video/mp4"
                 : name.endsWith(".mp3") ? "audio/mpeg" : name.endsWith(".wav") ? "audio/wav" : "image/jpeg";
         log.accept("Tải " + f.getName() + " lên TOS (" + bucket + ")…");
         tos.putObject(bucket, key, java.nio.file.Files.readAllBytes(p), type);
-        return tos.presignGet(bucket, key, java.time.Duration.ofHours(6));
+        return tos.presignGet(bucket, key, ttl);
     }
 
     private String ensureBucket(ark.integration.byteplus.TosClient tos, java.util.function.Consumer<String> log) throws Exception {

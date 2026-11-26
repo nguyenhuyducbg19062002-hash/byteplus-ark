@@ -97,7 +97,7 @@ public class ScriptProject {
         return Boolean.TRUE.equals(onlySelected);
     }
 
-    /** Nguồn tạo video: BYTEPLUS (ModelArk, mặc định) hoặc BOTSD (botsd.pro). null = BYTEPLUS. */
+    /** Nguồn tạo video: BYTEPLUS (ModelArk, mặc định), BOTSD (botsd.pro) hoặc API888 (888api.xin). null = BYTEPLUS. */
     @Column(length = 10)
     private String provider;
 
@@ -107,6 +107,23 @@ public class ScriptProject {
 
     public boolean isBotsd() {
         return "BOTSD".equals(provider);
+    }
+
+    public boolean isApi888() {
+        return "API888".equals(provider);
+    }
+
+    /** Nguồn gửi ảnh thẳng từ máy (không cần Virtual Portrait / không bị chặn mặt người kiểu BytePlus). */
+    public boolean sendsRawImages() {
+        return isBotsd() || isApi888();
+    }
+
+    /** Model 888API (vd seedance2.0-933-c5-fast). null = model mặc định. */
+    @Column(length = 80)
+    private String api888Model;
+
+    public String getApi888Model() {
+        return api888Model == null || api888Model.isBlank() ? ark.service.Api888Service.DEFAULT_MODEL : api888Model;
     }
 
     /** Model BOTSD: sd20, sd25, sd25hd, muse. null = sd25. */

@@ -35,6 +35,10 @@ public class SettingsService {
                 .configFile(config.file().toString())
                 .botsdUsername(config.botsdUsername())
                 .botsdLoggedIn(!config.botsdToken().isEmpty())
+                .api888Key(mask(config.api888Key()))
+                .api888KeySet(!config.api888Key().isEmpty())
+                .api888ImageHost(config.api888ImageHost())
+
                 .build();
     }
 

@@ -67,6 +67,10 @@ public class ScriptRunner {
     private final AssetLibraryService assetLibrary;
     private final ScriptBlockAnalyzer blockAnalyzer;
     private final BotsdService botsd;
+    private final Api888Service api888;
+
+    /** taskId của clip chạy qua 888API có tiền tố này. */
+    static final String API888_PREFIX = "888:";
 
     /** taskId của clip chạy qua BOTSD có tiền tố này (phân biệt với task BytePlus). */
     static final String BOTSD_PREFIX = "botsd:";
@@ -133,12 +137,12 @@ public class ScriptRunner {
         List<ScriptClip> queue = clips.findByProjectIdAndStatusOrderByRunPriorityDescSeqAsc(p.getId(), ScriptClip.Status.PENDING);
         int blocked = 0;
         Set<String> missingCodes = new java.util.TreeSet<>();
-        RefCheck check = new RefCheck(refs);
+        RefCheck check = new RefCheck(refs, p.sendsRawImages());
         for (ScriptClip c : queue) {
             if (running >= p.getMaxParallel()) return;
             if (active.containsKey(c.getId())) continue;
             if (p.isOnlySelected() && !c.isRunSelected()) continue; // chỉ chạy clip / cảnh đã chọn
-            List<String> missing = p.isBotsd() ? check.missingFiles(c) : check.missing(c);
+            List<String> missing = check.missing(c);
             if (!missing.isEmpty()) {
                 blocked++;
                 missingCodes.addAll(missing);
@@ -214,11 +218,14 @@ public class ScriptRunner {
 
     /** Mã tham chiếu của clip chưa gán ảnh hoặc ảnh đã bị xoá khỏi máy. */
     public List<String> missingRefs(ScriptClip c, Map<String, ScriptReference> refs) {
-        return new RefCheck(refs).missing(c);
+        return refCheck(refs).missing(c);
     }
 
+    /** RefCheck theo nguồn video của dự án chứa các mã (BOTSD / 888API gửi ảnh thẳng → không tính chặn Virtual Portrait). */
     public RefCheck refCheck(Map<String, ScriptReference> refs) {
-        return new RefCheck(refs);
+        boolean raw = refs.values().stream().findFirst().map(ScriptReference::getProjectId).flatMap(projects::findById)
+                .map(ScriptProject::sendsRawImages).orElse(false);
+        return new RefCheck(refs, raw);
     }
 
     /**
@@ -231,15 +238,19 @@ public class ScriptRunner {
         private final Map<String, Boolean> unusable = new java.util.HashMap<>();
         /** File của mọi mã, tải một lần bằng một truy vấn (thay vì một truy vấn cho mỗi mã). */
         private final Map<Long, GeneratedFile> files;
+        /** Nguồn gửi ảnh thẳng (BOTSD / 888API): chỉ cần có file, bỏ qua chặn Virtual Portrait. */
+        private final boolean raw;
 
-        RefCheck(Map<String, ScriptReference> refs) {
+        RefCheck(Map<String, ScriptReference> refs, boolean raw) {
             this.refs = refs;
+            this.raw = raw;
             List<Long> ids = refs.values().stream().map(ScriptReference::getFileId).filter(java.util.Objects::nonNull).distinct().toList();
             this.files = ids.isEmpty() ? Map.of() : fileLibrary.existing(ids).stream()
                     .collect(Collectors.toMap(GeneratedFile::getId, f -> f, (a, b) -> a));
         }
 
         public List<String> missing(ScriptClip c) {
+            if (raw) return missingFiles(c);
             List<String> out = new ArrayList<>();
             for (String code : c.refList()) if (unusable(code)) out.add(code);
             return out;
@@ -268,6 +279,7 @@ public class ScriptRunner {
 
         /** Như {@link ScriptRunner#isBlocked(ScriptReference)} nhưng dùng file đã tải sẵn. */
         public boolean blocked(ScriptReference r) {
+            if (raw) return false;
             return isBlocked(r, r.getFileId() == null ? null : files.get(r.getFileId()));
         }
     }
@@ -344,6 +356,10 @@ public class ScriptRunner {
             // Task đã gửi thì theo dõi ở đúng nơi đã gửi; clip mới gửi theo nguồn của dự án
             if (clip.getTaskId() != null ? clip.getTaskId().startsWith(BOTSD_PREFIX) : project.isBotsd()) {
                 runBotsd(clip, project, say);
+                return;
+            }
+            if (clip.getTaskId() != null ? clip.getTaskId().startsWith(API888_PREFIX) : project.isApi888()) {
+                runApi888(clip, project, say);
                 return;
             }
             Models.VideoModel model = Models.video(project.getModel());
@@ -598,6 +614,187 @@ public class ScriptRunner {
         return ids;
     }
 
+    // ---------- 888API ----------
+
+    private static final long API888_POLL_MS = 8_000;
+
+    /** Lỗi khi gửi task 888API mà không chắc máy chủ đã nhận (không tự gửi lại – tránh trừ tiền 2 lần). */
+    static final class Api888Uncertain extends IllegalStateException {
+        Api888Uncertain(String m) {
+            super(m);
+        }
+    }
+
+    private void runApi888(ScriptClip clip, ScriptProject project, Consumer<String> say) throws Exception {
+        Long clipId = clip.getId();
+        Api888Service.Model m = Api888Service.model(project.getApi888Model());
+        ark.integration.api888.Api888Client client = api888.client();
+        String taskId;
+        if (clip.getTaskId() == null) {
+            Map<String, Object> body = api888Payload(clip, project, m, say);
+            say.accept("Đang gửi task lên 888API (" + m.id() + ", " + body.get("duration") + "s)…");
+            taskId = submitApi888(client, body);
+            String t = API888_PREFIX + taskId;
+            updateClip(clipId, c -> c.setTaskId(t));
+        } else {
+            taskId = clip.getTaskId().substring(API888_PREFIX.length());
+            say.accept("Theo dõi tiếp task 888API " + taskId);
+        }
+
+        long nextPoll = 0;
+        int netErrors = 0;
+        int notFound = 0;
+        String url = null;
+        while (true) {
+            if (cancelRequested.contains(clipId)) {
+                finish(clipId, ScriptClip.Status.CANCELLED,
+                        "Đã dừng theo dõi – 888API không có lệnh huỷ nên task " + taskId + " vẫn chạy trên 888API", true);
+                return;
+            }
+            if (System.currentTimeMillis() >= nextPoll) {
+                Map<String, Object> t;
+                try {
+                    t = client.task(taskId);
+                    netErrors = 0;
+                } catch (ark.integration.api888.Api888Exception e) {
+                    // Tài liệu: một lần 404 chưa chắc task mất → xem lại vài lần
+                    if ((e.status() == 404 || e.status() == 410) && ++notFound < 5) {
+                        say.accept("888API chưa thấy task (" + e.status() + "), xem lại sau 30s…");
+                        nextPoll = System.currentTimeMillis() + 30_000;
+                        continue;
+                    }
+                    if (e.status() != 429 && e.status() < 500) throw e;
+                    int wait = e.retryAfterSeconds() != null ? Math.max(5, e.retryAfterSeconds()) : 30;
+                    say.accept("888API bận (" + e.status() + "), xem lại tiến độ sau " + wait + "s");
+                    nextPoll = System.currentTimeMillis() + wait * 1000L;
+                    continue;
+                } catch (IOException e) {
+                    if (++netErrors > 30) throw e;
+                    say.accept("Lỗi mạng khi xem tiến độ (" + netErrors + "), thử lại sau 20s…");
+                    nextPoll = System.currentTimeMillis() + 20_000;
+                    continue;
+                }
+                Object task = Json.str(t, "status") == null && Json.path(t, "data") instanceof Map ? Json.path(t, "data") : t;
+                String status = String.valueOf(Json.str(task, "status")).toLowerCase(Locale.ROOT);
+                if (status.equals("failed") || status.equals("failure") || status.equals("error") || status.equals("cancelled")) {
+                    throw new TaskFailed("Api888Failed", "888API báo lỗi: " + api888Error(task));
+                }
+                if (status.equals("completed") || status.equals("succeeded") || status.equals("success")) {
+                    url = Json.str(task, "url");
+                    if (url == null) url = Json.str(task, "video_url");
+                    if (url == null) url = Json.str(task, "content", "video_url");
+                    break;
+                }
+                Object pct = Json.path(task, "progress");
+                say.accept("888API: " + (status.equals("queued") ? "đang xếp hàng" : status.equals("in_progress") ? "đang tạo" : status)
+                        + (pct != null ? " (" + pct + "%)" : ""));
+                nextPoll = System.currentTimeMillis() + API888_POLL_MS;
+            }
+            Thread.sleep(1000);
+        }
+
+        Path target = freeTarget(project, clip.getCode(), "mp4");
+        say.accept("Đang tải video từ 888API…");
+        try {
+            client.download(taskId, url, target);
+        } catch (ark.integration.api888.Api888Exception e) {
+            if (url == null || e.status() < 400 || e.status() >= 500) throw e;
+            client.download(taskId, null, target); // link hết hạn → lấy qua /v1/videos/{id}/content
+        }
+        GeneratedFile f = fileLibrary.record(new SavedOutput(target, null), "888-" + m.id(), clip.getPrompt(),
+                API888_PREFIX + taskId, null);
+        updateClip(clipId, c -> {
+            c.setStatus(ScriptClip.Status.SUCCEEDED);
+            c.setFileId(f.getId());
+            c.setError(null);
+            c.setFinishedAt(Instant.now());
+        });
+    }
+
+    static String api888Error(Object task) {
+        Object err = Json.path(task, "error");
+        String msg = err instanceof Map ? Json.str(err, "message") : err instanceof String s ? s : null;
+        String code = err instanceof Map ? Json.str(err, "code") : null;
+        if (msg == null) msg = Json.str(task, "message");
+        if (msg == null) msg = Json.str(task, "fail_reason");
+        if (msg == null) msg = "task failed";
+        return code != null && !msg.contains(code) ? code + " – " + msg : msg;
+    }
+
+    /** Body POST /v1/videos: ảnh tham chiếu theo đúng thứ tự clip (Ảnh 1, 2…), là link HTTPS của ảnh trong dự án. */
+    private Map<String, Object> api888Payload(ScriptClip clip, ScriptProject project, Api888Service.Model m, Consumer<String> say)
+            throws Exception {
+        String prompt = clip.getPrompt();
+        if (m.promptMax() > 0 && prompt.length() > m.promptMax()) {
+            throw new IllegalArgumentException("Prompt " + prompt.length() + " ký tự > tối đa " + m.promptMax() + " của " + m.id()
+                    + " trên 888API – đổi model trong Cấu hình chạy");
+        }
+        List<String> codes = clip.refList();
+        if (codes.size() > m.maxImages()) {
+            throw new IllegalArgumentException(m.id() + " chỉ nhận tối đa " + m.maxImages() + " ảnh, clip có " + codes.size()
+                    + " ảnh – đổi model 888API trong Cấu hình chạy");
+        }
+        Map<String, ScriptReference> refs = references.findByProjectIdOrderByKindAscCodeAsc(project.getId()).stream()
+                .collect(Collectors.toMap(ScriptReference::getCode, r -> r, (a, b) -> a));
+        List<String> images = new ArrayList<>();
+        for (String code : codes) {
+            ScriptReference r = refs.get(code);
+            if (r == null || r.getFileId() == null) throw new IllegalArgumentException("Chưa gán ảnh cho mã " + code);
+            GeneratedFile f = fileLibrary.get(r.getFileId());
+            Path path = fileLibrary.pathOf(f);
+            if (!Files.isRegularFile(path)) {
+                throw new IllegalArgumentException("Ảnh của mã " + code + " (" + f.getName() + ") không còn trên máy");
+            }
+            if (Files.size(path) > MAX_IMAGE_BYTES) throw new IllegalArgumentException("Ảnh " + f.getName() + " của mã " + code + " > 30 MB");
+            if (m.id().endsWith("-face")) {
+                String mime = imageMime(Files.readAllBytes(path), f.getName());
+                if (!"image/png".equals(mime) && !"image/jpeg".equals(mime)) {
+                    throw new IllegalArgumentException(m.id() + " chỉ nhận ảnh PNG/JPEG – ảnh " + f.getName() + " của mã " + code + " không phải");
+                }
+            }
+            try {
+                images.add(api888.imageUrl(f, project.getFolder(), msg -> say.accept(code + ": " + msg)));
+            } catch (IllegalStateException e) {
+                throw new IllegalStateException("Không tạo được link ảnh " + code + " cho 888API: " + e.getMessage(), e);
+            }
+        }
+        int seconds = Api888Service.seconds(m, clip.getDuration());
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("model", m.id());
+        body.put("prompt", prompt);
+        body.put("duration", seconds);
+        body.put("seconds", seconds); // có model bắt buộc seconds; gửi cả hai cùng giá trị là hợp lệ
+        body.put("ratio", project.getRatio());
+        body.put("resolution", m.resolution());
+        if (!images.isEmpty()) body.put(m.imageField(), images);
+        return body;
+    }
+
+    /**
+     * Gửi task 888API. Tài liệu: không tự gửi lại khi hết giờ / mất kết nối sau khi đã gửi (task có thể đã được tạo).
+     * Không kết nối được (chưa gửi) → lỗi mạng thường, thử lại an toàn; còn lại → tạm dừng dự án cho người dùng kiểm tra.
+     */
+    private String submitApi888(ark.integration.api888.Api888Client client, Map<String, Object> body) throws Exception {
+        Map<String, Object> r;
+        try {
+            r = client.create(body);
+        } catch (ark.integration.api888.Api888Exception e) {
+            if (e.status() == 500 || e.status() == 502 || e.status() == 504) {
+                throw new Api888Uncertain("Không chắc 888API đã nhận clip (HTTP " + e.status() + " khi gửi: " + e.getMessage()
+                        + ") – xem Nhật ký trên 888api.xin/console, tránh trả tiền 2 lần, rồi bấm Chạy");
+            }
+            throw e;
+        } catch (java.net.ConnectException | java.nio.channels.UnresolvedAddressException e) {
+            throw new IOException("Không kết nối được 888API: " + GlobalExceptionHandler.describe(e), e);
+        } catch (IOException e) {
+            throw new Api888Uncertain("Không chắc 888API đã nhận clip (mất kết nối khi gửi: " + GlobalExceptionHandler.describe(e)
+                    + ") – xem Nhật ký trên 888api.xin/console, tránh trả tiền 2 lần, rồi bấm Chạy");
+        }
+        String id = ark.integration.api888.Api888Client.taskId(r);
+        if (id == null) throw new Api888Uncertain("888API không trả về mã task – xem Nhật ký trên 888api.xin/console rồi bấm Chạy");
+        return id;
+    }
+
     /**
      * Có asset Virtual Portrait Active tên trùng mã (tên asset hoặc tên group, vd upload trên console) → tải về thư viện,
      * gán cho mã, bỏ đánh dấu chặn. Trả về file đã gắn asset, hoặc null nếu không có / lỗi.
@@ -769,7 +966,33 @@ public class ScriptRunner {
             }
             return;
         }
+        if (e instanceof ark.integration.api888.Api888Exception ae) {
+            int s = ae.status();
+            String code = ae.code() == null ? "" : ae.code().toUpperCase(Locale.ROOT);
+            if (s == 429) {
+                int wait = ae.retryAfterSeconds() != null ? Math.max(5, ae.retryAfterSeconds()) : (int) COOLDOWN_SECONDS;
+                requeue(clipId, "888API: gửi quá nhanh (429) – chờ " + wait + "s rồi gửi lại");
+                if (project != null) updateProject(project.getId(), p -> p.setCooldownUntil(Instant.now().plusSeconds(wait)));
+            } else if (ae.quota()) {
+                requeue(clipId, msg);
+                pause(project, "888API: không đủ số dư / hạn mức key – nạp thêm (hoặc chọn model rẻ hơn) rồi bấm Chạy");
+            } else if (s == 401 || s == 403) {
+                requeue(clipId, msg);
+                pause(project, "888API từ chối key (" + s + "): " + ae.getMessage() + " – kiểm tra key trong Cài đặt › 888API và quyền model "
+                        + (project == null ? "" : project.getApi888Model()) + " trên console, rồi bấm Chạy");
+            } else if (code.contains("RELAY_BUSY") || code.contains("RELAY_UNAVAILABLE") || code.contains("UNREACHABLE")) {
+                transient_(clipId, project, msg, true); // 888API bận đọc ảnh – task chưa tạo, gửi lại sau
+            } else if (s == 404 || s == 410) {
+                transient_(clipId, project, msg, true); // task không còn → gửi task mới
+            } else if (s >= 500) {
+                transient_(clipId, project, msg, false);
+            } else {
+                finish(clipId, ScriptClip.Status.FAILED, "888API: " + ae.getMessage(), true);
+            }
+            return;
+        }
         if (e instanceof ArkException ae) {
+
             String code = ae.code() == null ? "" : ae.code().toLowerCase(Locale.ROOT);
             if (ae.status() == 429 || code.contains("ratelimit") || code.contains("quota") || code.contains("overload")) {
                 requeue(clipId, "BytePlus giới hạn tốc độ (429) – chờ " + COOLDOWN_SECONDS + "s rồi gửi lại");

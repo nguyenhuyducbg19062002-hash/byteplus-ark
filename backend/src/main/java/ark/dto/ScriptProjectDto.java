@@ -17,4 +17,5 @@ public record ScriptProjectDto(Long id, String name, String sourceFile, String f
                                /** Đang chạy chỉ các clip đã chọn (không phải cả kịch bản). */
                                boolean onlySelected, int selectedPending,
                                /** Nguồn tạo video BYTEPLUS / BOTSD và cấu hình BOTSD. */
-                               String provider, String botsdModel, String botsdResolution, String botsdRealPerson) {}
+                               String provider, String botsdModel, String botsdResolution, String botsdRealPerson,
+                               String api888Model) {}

@@ -63,6 +63,7 @@ public class ScriptService {
     private final ScriptPromptWriter promptWriter;
     private final ScriptBlockAnalyzer blockAnalyzer;
     private final BotsdService botsd;
+    private final Api888Service api888;
 
     // ---------- dự án ----------
 
@@ -98,7 +99,9 @@ public class ScriptService {
         if (req.getBotsdModel() != null) p.setBotsdModel(req.getBotsdModel());
         if (req.getBotsdResolution() != null) p.setBotsdResolution(req.getBotsdResolution());
         if (req.getBotsdRealPerson() != null) p.setBotsdRealPerson(req.getBotsdRealPerson());
+        if (req.getApi888Model() != null) p.setApi888Model(req.getApi888Model().trim());
         if (p.isBotsd()) checkBotsd(p);
+        if (p.isApi888()) checkApi888(p);
         if (req.getMaxAttempts() != null) p.setMaxAttempts(req.getMaxAttempts());
         if (req.getAutoApproveImages() != null) p.setAutoApproveImages(req.getAutoApproveImages());
         if (req.getRefSaveDir() != null) {
@@ -163,8 +166,20 @@ public class ScriptService {
         if (p.isBotsd()) {
             if (!botsd.configured()) throw new IllegalStateException("Chưa đăng nhập BOTSD – vào Cài đặt › BOTSD đăng nhập trước khi chạy");
             checkBotsd(p);
+        } else if (p.isApi888()) {
+            String why = api888.notReady();
+            if (why != null) throw new IllegalStateException(why);
+            checkApi888(p);
         } else if (config.apiKey().isEmpty()) {
             throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
+        }
+    }
+
+    /** Ràng buộc của model 888API: tỉ lệ khung model nhận. */
+    private static void checkApi888(ScriptProject p) {
+        Api888Service.Model m = Api888Service.model(p.getApi888Model());
+        if (!m.ratios().contains(p.getRatio())) {
+            throw new IllegalArgumentException(m.name() + " (888API) không hỗ trợ tỉ lệ " + p.getRatio() + " – chọn " + String.join(", ", m.ratios()));
         }
     }
 
@@ -708,7 +723,7 @@ public class ScriptService {
                 .counts(counts).refsTotal(refs.size()).refsMissing(missing).blockedClips(blocked).warningClips(warn)
                 .onlySelected(p.isOnlySelected())
                 .provider(p.getProvider()).botsdModel(p.getBotsdModel()).botsdResolution(p.getBotsdResolution())
-                .botsdRealPerson(p.getBotsdRealPerson())
+                .botsdRealPerson(p.getBotsdRealPerson()).api888Model(p.getApi888Model())
                 .selectedPending((int) all.stream().filter(c -> c.isRunSelected() && (c.getStatus() == ScriptClip.Status.PENDING
                         || c.getStatus() == ScriptClip.Status.GENERATING)).count())
                 .build();

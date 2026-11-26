@@ -40,8 +40,12 @@ public class ScriptProjectUpdateRequest {
     @Size(max = 500, message = "Đường dẫn thư mục tối đa 500 ký tự")
     private String refSaveDir;
 
-    @Pattern(regexp = "BYTEPLUS|BOTSD", message = "Nguồn tạo video không hợp lệ")
+    @Pattern(regexp = "BYTEPLUS|BOTSD|API888", message = "Nguồn tạo video không hợp lệ")
     private String provider;
+
+    @Size(max = 80, message = "Mã model 888API tối đa 80 ký tự")
+    @Pattern(regexp = "[^\s/?#]*", message = "Mã model 888API không hợp lệ")
+    private String api888Model;
 
     @Pattern(regexp = "sd20|sd25|sd25hd|muse", message = "Model BOTSD không hợp lệ")
     private String botsdModel;

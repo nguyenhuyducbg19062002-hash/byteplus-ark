@@ -123,6 +123,23 @@ public class Config {
     public String botsdToken() { return props.getProperty("botsd_token", "").trim(); }
     public void setBotsdToken(String v) { set("botsd_token", v); }
 
+    // ---- 888API (888api.xin) – nguồn tạo video thứ ba, xác thực bằng API key "sk-…" ----
+
+    public String api888BaseUrl() {
+        String u = props.getProperty("api888_base_url", "").trim();
+        return u.isEmpty() ? "https://888api.xin" : u;
+    }
+
+    public String api888Key() { return props.getProperty("api888_key", "").trim(); }
+    public void setApi888Key(String v) { set("api888_key", v); }
+
+    /** Nơi để link ảnh tham chiếu cho 888API (chỉ nhận link HTTPS): TOS (bucket riêng tư BytePlus, mặc định) hoặc LITTERBOX. */
+    public String api888ImageHost() {
+        String h = props.getProperty("api888_image_host", "").trim();
+        return h.isEmpty() ? "TOS" : h;
+    }
+    public void setApi888ImageHost(String v) { set("api888_image_host", v); }
+
     private void set(String k, String v) { props.setProperty(k, v == null ? "" : v.trim()); }
 
     private String envOr(String key, String env) {
