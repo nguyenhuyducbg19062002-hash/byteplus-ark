@@ -47,15 +47,51 @@ public class FileLibraryService {
         return config.outputDir().toAbsolutePath().normalize();
     }
 
-    /** Resolves a relative path inside the output folder (rejects ../ escapes). */
+    /**
+     * Đường dẫn trong thư mục output (chặn ../), hoặc đường dẫn đầy đủ nằm trong thư mục của một dự án theo thư mục
+     * (ảnh tham chiếu / video lưu ngay trong thư mục dự án).
+     */
     public Path resolve(String rel) {
-        Path p = root().resolve(rel.replace('\\', '/')).normalize();
+        String r = rel.replace('\\', '/');
+        if (isAbsolute(r)) {
+            Path p = Path.of(r).toAbsolutePath().normalize();
+            if (!insideProjectRoot(p)) throw new IllegalArgumentException("Đường dẫn không thuộc thư mục dự án nào: " + rel);
+            return p;
+        }
+        Path p = root().resolve(r).normalize();
         if (!p.startsWith(root())) throw new IllegalArgumentException("Đường dẫn không hợp lệ: " + rel);
         return p;
     }
 
+    /** Tương đối với thư mục output; file ngoài output (trong thư mục dự án) giữ đường dẫn đầy đủ. */
     public String relative(Path p) {
-        return root().relativize(p.toAbsolutePath().normalize()).toString().replace('\\', '/');
+        Path a = p.toAbsolutePath().normalize();
+        if (a.startsWith(root())) return root().relativize(a).toString().replace('\\', '/');
+        return a.toString().replace('\\', '/');
+    }
+
+    /** File nằm ngoài thư mục output của app (trong thư mục dự án của người dùng) – app không bao giờ xoá file này. */
+    public boolean outsideOutput(GeneratedFile f) {
+        return isAbsolute(f.getPath().replace('\\', '/'));
+    }
+
+    private static boolean isAbsolute(String r) {
+        return r.matches("^[A-Za-z]:/.*") || r.startsWith("//") || r.startsWith("/");
+    }
+
+    private volatile List<Path> rootsCache = List.of();
+    private volatile long rootsAt;
+
+    private boolean insideProjectRoot(Path p) {
+        for (int pass = 0; pass < 2; pass++) {
+            if (pass == 1 || System.currentTimeMillis() - rootsAt > 10_000) { // lần 2: dự án vừa mở – làm mới danh sách
+                rootsCache = projects.findAll().stream().filter(ark.entity.ScriptProject::isFolderProject)
+                        .map(x -> Path.of(x.getRootDir()).toAbsolutePath().normalize()).toList();
+                rootsAt = System.currentTimeMillis();
+            }
+            for (Path r : rootsCache) if (p.startsWith(r)) return true;
+        }
+        return false;
     }
 
     /** Saves / updates the DB row for a freshly downloaded output. */
@@ -203,11 +239,13 @@ public class FileLibraryService {
         return repository.findByPath(relative(p));
     }
 
+    /** Xoá khỏi thư viện. File trong thư mục dự án của người dùng chỉ bỏ khỏi thư viện, không xoá trên đĩa. */
     public void delete(Long id) throws IOException {
         GeneratedFile f = get(id);
-        Files.deleteIfExists(pathOf(f));
+        if (!outsideOutput(f)) Files.deleteIfExists(pathOf(f));
         repository.delete(f);
     }
+
 
     /**
      * Converts a frontend reference into what the generation API accepts.

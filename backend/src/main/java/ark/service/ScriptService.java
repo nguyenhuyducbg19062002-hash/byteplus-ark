@@ -623,7 +623,7 @@ public class ScriptService {
             if (!id.equals(f.getProjectId())) {
                 // Ảnh của dự án khác / ảnh lẻ → chép thành ảnh riêng của dự án này (2 dự án trùng mã không dùng chung một file)
                 try {
-                    GeneratedFile copy = fileLibrary.copyTo(f, id, fileLibrary.root().resolve("assets").resolve(project(id).getFolder()), code);
+                    GeneratedFile copy = fileLibrary.copyTo(f, id, imageRunner.refDir(project(id)), code);
                     log.info("Mã {} của dự án {}: chép ảnh {} (dự án {}) thành {}", code, id, f.getName(), f.getProjectId(), copy.getName());
                     fileId = copy.getId();
                 } catch (IOException e) {
@@ -648,7 +648,7 @@ public class ScriptService {
         reference(id, code);
         String ext = fileName == null || !fileName.contains(".") ? "" : fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         if (!IMAGE_EXT.contains(ext)) throw new IllegalArgumentException("Chỉ nhận ảnh jpg, png, webp, bmp");
-        Path dir = fileLibrary.root().resolve("assets").resolve(p.getFolder());
+        Path dir = imageRunner.refDir(p); // dự án theo thư mục: <dự án>/Ảnh tham chiếu
         Files.createDirectories(dir);
         Path target = dir.resolve(code + "." + ext);
         for (int v = 2; Files.exists(target); v++) target = dir.resolve(code + "_v" + v + "." + ext);

@@ -437,7 +437,8 @@ async function rescan() {
     importResult.value = r.imported
     folderScan.value = r.scan
     const i = r.imported
-    ElMessage.success(`Đã quét lại: ${i.created + i.updated + i.unchanged} cảnh (${i.created} mới, ${i.updated} cập nhật)`)
+    const sy = r.synced || {}
+    ElMessage.success(`Đã quét lại: ${i.created + i.updated + i.unchanged} cảnh (${i.created} mới, ${i.updated} cập nhật) · gán ${sy.refsAssigned || 0} ảnh từ thư mục · ${sy.scenesDone || 0} cảnh nhận video có sẵn` + (sy.scenesReopened ? ` · ${sy.scenesReopened} cảnh mất video → chờ tạo lại` : ''))
     await refresh()
     refs.run()
   } finally {
@@ -744,8 +745,9 @@ function downloadZip(what) {
       </div>
       <p v-for="p in folderScan?.problems || []" :key="p" class="mt-1 text-xs text-amber-600">⚠ {{ p }}</p>
       <p class="hint mt-1">
-        Sửa Excel hoặc bỏ thêm file vào thư mục thì bấm <b>Quét lại</b>. Bản này mới đọc Excel và đếm ảnh / video; các bản sau sẽ tự dùng ảnh trong
-        <code>Ảnh tham chiếu/</code>, lưu ảnh / video mới vào thư mục dự án và bỏ qua cảnh đã có video.
+        Ảnh trong <code>{{ folderScan?.refDir?.name || 'Ảnh tham chiếu' }}/</code> (tên file = mã) được tự gán cho mã; cảnh đã có video trong
+        <code>{{ folderScan?.videoDir?.name || 'Videos' }}/</code> là Xong, không chạy lại. Ảnh AI mới vào <code>{{ folderScan?.pendingDir?.name || 'Ảnh chờ duyệt' }}/</code>,
+        video mới tự lưu vào <code>{{ folderScan?.videoDir?.name || 'Videos' }}/</code> (làm lại thì thêm <code>_v2</code>…). Sửa Excel hoặc bỏ thêm ảnh / video vào thư mục thì bấm <b>Quét lại</b>.
       </p>
     </section>
 

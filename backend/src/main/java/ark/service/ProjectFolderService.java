@@ -44,6 +44,176 @@ public class ProjectFolderService {
     private final ScriptImportService importer;
     private final ScriptService scripts;
     private final ScriptProjectRepository projects;
+    private final FileLibraryService fileLibrary;
+    private final ark.repository.ScriptReferenceRepository references;
+    private final ark.repository.ScriptClipRepository clips;
+
+    // ---------- thư mục con của dự án ----------
+
+    public static final String DEFAULT_REF_DIR = "Ảnh tham chiếu";
+    public static final String DEFAULT_PENDING_DIR = "Ảnh chờ duyệt";
+    public static final String DEFAULT_VIDEO_DIR = "Videos";
+
+    /** Thư mục con có sẵn khớp loại (nhận cả không dấu / hoa thường), không có thì tên mặc định (chưa tạo). */
+    public static Path subDir(Path root, String kind) {
+        try (Stream<Path> s = Files.list(root)) {
+            for (Path p : s.sorted().toList()) {
+                if (!Files.isDirectory(p) || p.getFileName().toString().startsWith(".")) continue;
+                String k = norm(p.getFileName().toString());
+                boolean pending = k.contains("cho duyet") || k.contains("pending");
+                if (kind.equals("pending") && pending) return p;
+                if (kind.equals("ref") && !pending && (k.contains("tham chieu") || k.contains("reference"))) return p;
+                if (kind.equals("video") && k.contains("video")) return p;
+            }
+        } catch (IOException e) {
+            log.warn("Không đọc được thư mục {}: {}", root, e.getMessage());
+        }
+        return root.resolve(kind.equals("pending") ? DEFAULT_PENDING_DIR : kind.equals("ref") ? DEFAULT_REF_DIR : DEFAULT_VIDEO_DIR);
+    }
+
+    public static Path refDirOf(ScriptProject p) {
+        return subDir(Path.of(p.getRootDir()), "ref");
+    }
+
+    public static Path pendingDirOf(ScriptProject p) {
+        return subDir(Path.of(p.getRootDir()), "pending");
+    }
+
+    public static Path videoDirOf(ScriptProject p) {
+        return subDir(Path.of(p.getRootDir()), "video");
+    }
+
+    // ---------- đồng bộ ảnh / video có sẵn trong thư mục ----------
+
+    /** Kết quả đồng bộ: số mã được gán ảnh trong thư mục, số cảnh nhận video có sẵn. */
+    public record SyncResult(int refsAssigned, int scenesDone, int scenesReopened) {}
+
+    /**
+     * Ảnh trong {@code Ảnh tham chiếu/} (tên file = mã, chỉ ngay trong thư mục – bỏ qua _cu/_bo/_loi) đưa vào thư viện của
+     * dự án và gán cho mã: mã chưa có ảnh dùng được → ảnh khớp mới nhất; mã đang dùng ảnh trong thư mục mà có ảnh khớp mới
+     * hơn → đổi sang ảnh mới hơn. Video trong {@code Videos/} (001.mp4, 001_(1).mp4, 001_v2.mp4…) → cảnh đó Xong.
+     */
+    public SyncResult sync(ScriptProject p) {
+        int refs = 0, done = 0, reopened = 0;
+        try {
+            refs = syncImages(p);
+        } catch (Exception e) {
+            log.warn("Không đọc được ảnh tham chiếu trong thư mục dự án {}: {}", p.getRootDir(), GlobalExceptionHandler.describe(e));
+        }
+        try {
+            int[] v = syncVideos(p);
+            done = v[0];
+            reopened = v[1];
+        } catch (Exception e) {
+            log.warn("Không đọc được video trong thư mục dự án {}: {}", p.getRootDir(), GlobalExceptionHandler.describe(e));
+        }
+        return new SyncResult(refs, done, reopened);
+    }
+
+    private record Disk(ark.entity.GeneratedFile file, Path path, Instant modified) {}
+
+    /** File ngay trong dir có đuôi exts → bản ghi thư viện của dự án (thêm nếu chưa có; giờ tạo = giờ sửa file). */
+    private List<Disk> register(ScriptProject p, Path dir, Set<String> exts) throws IOException {
+        List<Disk> out = new ArrayList<>();
+        if (!Files.isDirectory(dir)) return out;
+        try (Stream<Path> s = Files.list(dir)) {
+            for (Path f : s.filter(Files::isRegularFile).filter(x -> exts.contains(ext(x))).toList()) {
+                Instant mt = Files.getLastModifiedTime(f).toInstant();
+                ark.entity.GeneratedFile g = fileLibrary.findByPath(f).orElse(null);
+                if (g == null) {
+                    g = fileLibrary.recordFor(p.getId(), new ark.integration.byteplus.SavedOutput(f, null), null,
+                            "Có sẵn trong thư mục dự án " + p.getName(), null);
+                    g.setCreatedAt(mt);
+                    g = fileLibrary.save(g);
+                } else if (!p.getId().equals(g.getProjectId())) {
+                    g.setProjectId(p.getId());
+                    g = fileLibrary.save(g);
+                }
+                out.add(new Disk(g, f, mt));
+            }
+        }
+        return out;
+    }
+
+    private int syncImages(ScriptProject p) throws IOException {
+        Path dir = refDirOf(p);
+        List<Disk> images = register(p, dir, IMAGE_EXT);
+        if (images.isEmpty()) return 0;
+        Path normDir = dir.toAbsolutePath().normalize();
+        int n = 0;
+        for (ark.entity.ScriptReference r : references.findByProjectIdOrderByKindAscCodeAsc(p.getId())) {
+            if (r.isAwaitingImage()) continue; // đang tạo / chờ duyệt ảnh AI
+            Disk best = images.stream().filter(d -> AssetLibraryService.nameMatchesCode(d.path().getFileName().toString(), r.getCode()))
+                    .max(java.util.Comparator.comparing(Disk::modified)).orElse(null);
+            if (best == null || best.file().getId().equals(r.getFileId())) continue;
+            boolean replace;
+            if (r.getFileId() == null) {
+                replace = true;
+            } else {
+                ark.entity.GeneratedFile cur = fileLibrary.existing(List.of(r.getFileId())).stream().findFirst().orElse(null);
+                Path curPath = cur == null ? null : fileLibrary.pathOf(cur);
+                boolean usable = curPath != null && Files.isRegularFile(curPath);
+                boolean inFolder = curPath != null && normDir.equals(curPath.toAbsolutePath().normalize().getParent());
+                Instant curTime = usable ? Files.getLastModifiedTime(curPath).toInstant() : Instant.EPOCH;
+                // ảnh hiện tại không còn, hoặc nằm ngay trong Ảnh tham chiếu/ mà có ảnh cùng mã mới hơn
+                replace = !usable || (inFolder && best.modified().isAfter(curTime));
+            }
+            if (replace) {
+                r.setFileId(best.file().getId());
+                r.setBlockedReason(null);
+                references.save(r);
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** @return [số cảnh nhận video có sẵn, số cảnh Xong mà video đã bị xoá → chờ chạy lại] */
+    private int[] syncVideos(ScriptProject p) throws IOException {
+        Path dir = videoDirOf(p);
+        List<Disk> videos = register(p, dir, Set.of("mp4", "mov", "webm"));
+        Path normDir = dir.toAbsolutePath().normalize();
+        int done = 0, reopened = 0;
+        for (ark.entity.ScriptClip c : clips.findByProjectIdOrderBySeq(p.getId())) {
+            if (c.getStatus() == ark.entity.ScriptClip.Status.GENERATING || c.getTaskId() != null) continue;
+            Disk best = videos.stream().filter(d -> videoOfClip(d.path().getFileName().toString(), c.getCode()))
+                    .max(java.util.Comparator.comparing(Disk::modified)).orElse(null);
+            if (c.getStatus() == ark.entity.ScriptClip.Status.SUCCEEDED) {
+                if (best != null && c.getFileId() == null) {
+                    c.setFileId(best.file().getId());
+                    clips.save(c);
+                }
+                if (best == null && c.getFileId() != null) {
+                    ark.entity.GeneratedFile cur = fileLibrary.existing(List.of(c.getFileId())).stream().findFirst().orElse(null);
+                    Path curPath = cur == null ? null : fileLibrary.pathOf(cur);
+                    if (curPath == null || (!Files.exists(curPath) && normDir.equals(curPath.toAbsolutePath().normalize().getParent()))) {
+                        c.setStatus(ark.entity.ScriptClip.Status.PENDING);
+                        c.setFileId(null);
+                        c.setError("Video trong thư mục dự án đã bị xoá – chờ tạo lại");
+                        clips.save(c);
+                        reopened++;
+                    }
+                }
+                continue;
+            }
+            // Làm lại đã yêu cầu (ưu tiên chạy) thì giữ nguyên, không coi video cũ là xong
+            if (best == null || c.getRunPriority() > 0) continue;
+            c.setStatus(ark.entity.ScriptClip.Status.SUCCEEDED);
+            c.setFileId(best.file().getId());
+            c.setError(null);
+            if (c.getFinishedAt() == null) c.setFinishedAt(best.modified());
+            clips.save(c);
+            done++;
+        }
+        return new int[] {done, reopened};
+    }
+
+    /** File video thuộc cảnh: 001.mp4 / 001_(1).mp4 / 001_v2.mp4 / 1.mp4 với cảnh 001; mã chữ (019A) thì tên bắt đầu bằng mã. */
+    static boolean videoOfClip(String fileName, String code) {
+        Matcher m = VIDEO_SCENE.matcher(fileName);
+        if (code.matches("\\d{1,4}")) return m.matches() && Integer.parseInt(m.group(1)) == Integer.parseInt(code);
+        return fileName.matches("(?i)" + Pattern.quote(code) + "(?:[ _.(\\-].*)?\\.(mp4|mov|webm)");
+    }
 
     /** Một file Excel trong thư mục và loại nội dung nhận ra. */
     public record ExcelFile(String name, List<FileKind> kinds, String error) {}
@@ -63,7 +233,8 @@ public class ProjectFolderService {
     /** Lựa chọn khi mở (null = tự chọn). */
     public record Selection(String sceneFile, String refFile, String voiceFile) {}
 
-    public record OpenResult(ScriptProjectDto project, ScriptImportResult imported, ScanReport scan, boolean created) {}
+    public record OpenResult(ScriptProjectDto project, ScriptImportResult imported, ScanReport scan, boolean created, SyncResult synced) {}
+
 
     // ---------- quét ----------
 
@@ -259,9 +430,17 @@ public class ProjectFolderService {
             }
         }
         p = projects.findById(id).orElseThrow();
+        try {
+            Files.createDirectories(videoDirOf(p)); // thư mục chứa video của dự án
+        } catch (IOException e) {
+            log.warn("Không tạo được thư mục video trong {}: {}", root, e.getMessage());
+        }
+        SyncResult synced = sync(p);
+        log.info("Dự án {}: gán {} mã theo ảnh trong thư mục, {} cảnh đã có video, {} cảnh mất video", id,
+                synced.refsAssigned(), synced.scenesDone(), synced.scenesReopened());
         ProjectArkDir.write(p);
         log.info("Mở thư mục dự án {} → dự án {} ({} clip mới, {} cập nhật)", root, id, r.created(), r.updated());
-        return new OpenResult(scripts.toDto(p), r, scan(root.toString(), null), existing == null);
+        return new OpenResult(scripts.toDto(projects.findById(id).orElseThrow()), r, scan(root.toString(), null), existing == null, synced);
     }
 
     /** Quét lại dự án theo thư mục (đọc lại Excel đã chọn, đếm lại ảnh / video). */

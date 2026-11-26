@@ -31,4 +31,15 @@ class ProjectFolderNamesTest {
         assertTrue(ProjectFolderService.norm("Anh tham chieu").contains("tham chieu"));
         assertTrue(ProjectFolderService.norm("Ảnh tham chiếu").contains("tham chieu"));
     }
+
+    @Test
+    void videoBelongsToClip() {
+        assertTrue(ProjectFolderService.videoOfClip("001.mp4", "001"));
+        assertTrue(ProjectFolderService.videoOfClip("001_(1).mp4", "001"));
+        assertTrue(ProjectFolderService.videoOfClip("001_v2.mp4", "001"));
+        assertTrue(ProjectFolderService.videoOfClip("1.mp4", "001"));
+        assertFalse(ProjectFolderService.videoOfClip("010.mp4", "001"));
+        assertTrue(ProjectFolderService.videoOfClip("019A_v2.mp4", "019A"));
+        assertFalse(ProjectFolderService.videoOfClip("019AB.mp4", "019A"));
+    }
 }

@@ -1,6 +1,6 @@
 # Kế hoạch nâng cấp 1.06 – Kịch bản hàng loạt: **đọc thư mục dự án**, thiếu gì thì tạo
 
-Ngày lập: 26/11/2026 · Bản hiện tại: 1.05 · Trạng thái: **bước 1 xong (bản 1.06)**, chờ bạn thử rồi làm bước 2.
+Ngày lập: 26/11/2026 · Bản hiện tại: 1.05 · Trạng thái: **bước 1 xong (1.06); phần chính của bước 2 + 3 xong (1.07)**: tự gán ảnh trong thư mục, ảnh AI vào Ảnh chờ duyệt, video lưu vào Videos/, cảnh có video là Xong.
 
 Làm **từng bước một**. Xong mỗi bước, mình đóng gói một bản để bạn thử. Bạn duyệt xong mới làm bước tiếp theo.
 
@@ -63,27 +63,27 @@ Thư viện của dự án = thư mục dự án, nên 2 dự án trùng mã kh�
 - [x] Dự án nhập Excel kiểu cũ vẫn dùng được như trước. Danh sách dự án ghi rõ loại nào là "thư mục", loại nào là "nhập Excel".
 
 ### Bước 2 – Ảnh tham chiếu: đọc cái đã có, tạo cái còn thiếu (bản 1.07)
-- [ ] **Đọc ảnh có sẵn** trong `Ảnh tham chiếu/`:
+- [x] **Đọc ảnh có sẵn** trong `Ảnh tham chiếu/`:
   - Tên file trùng mã, nhận cả `CHAR-X-1.jpg` lẫn `CHAR_X_01.png`.
   - Một mã có nhiều ảnh thì dùng ảnh mới nhất, đổi được bằng tay.
-- [ ] Mã chưa có ảnh hiện **viền đỏ**. Nút **"Tạo bằng AI các ảnh còn thiếu"** chỉ tạo cho mã chưa có ảnh (ảnh đang chờ duyệt cũng tính là có).
-- [ ] **Ảnh AI mới:**
+- [x] Mã chưa có ảnh hiện **viền đỏ**. Nút **"Tạo bằng AI các ảnh còn thiếu"** chỉ tạo cho mã chưa có ảnh (ảnh đang chờ duyệt cũng tính là có).
+- [x] **Ảnh AI mới:**
   - Lưu vào `Ảnh chờ duyệt/<MÃ>.png`.
   - **Duyệt:** chuyển sang `Ảnh tham chiếu/`, ảnh cũ (nếu có) cất vào `_cu/`.
   - **Bỏ:** ảnh vào `_bo/`.
   - Ô "Tự duyệt ảnh AI" vẫn giữ.
-- [ ] **Tải lên / chọn ảnh từ máy** cho một mã: chép vào `Ảnh tham chiếu/<MÃ>.<đuôi>`, không ghi đè.
-- [ ] Bạn tự bỏ ảnh vào `Ảnh tham chiếu/` rồi bấm Quét lại thì app nhận ngay.
-- [ ] Cách gửi ảnh của bản 1.05 giữ nguyên: BytePlus đẩy Virtual Portrait vào group riêng của dự án, BOTSD gửi file, 888API gửi link tạm.
+- [x] **Tải lên / chọn ảnh từ máy** cho một mã: chép vào `Ảnh tham chiếu/<MÃ>.<đuôi>`, không ghi đè.
+- [x] Bạn tự bỏ ảnh vào `Ảnh tham chiếu/` rồi bấm Quét lại thì app nhận ngay.
+- [x] Cách gửi ảnh của bản 1.05 giữ nguyên: BytePlus đẩy Virtual Portrait vào group riêng của dự án, BOTSD gửi file, 888API gửi link tạm.
 
 ### Bước 3 – Video: đọc cái đã có, tạo cái còn thiếu (bản 1.08)
-- [ ] **Đọc `Videos/`**: cảnh có file video trùng số cảnh (`001.mp4`, `001_(1).mp4`, `001_v2.mp4`…) là **Xong**.
-- [ ] **Trạng thái mỗi cảnh:** Xong · Thiếu ảnh · Sẵn sàng · Đang chạy · Lỗi.
-- [ ] **Chạy** chỉ gửi cảnh *Sẵn sàng*, tức là chưa có video và đủ ảnh.
-- [ ] **Lưu video mới** vào `<dự án>/Videos/NNN.mp4`. Làm lại thì `NNN_v2.mp4`, `NNN_v3.mp4`…, không ghi đè.
-- [ ] **Tắt app rồi mở lại** thì chạy tiếp: task đã gửi được nhớ, chỉ theo dõi tiếp, không gửi lại.
-- [ ] **Làm lại** chỉ khi bấm: "Làm lại cảnh này", "Làm lại các cảnh lỗi", "Làm lại các cảnh đã chọn".
-- [ ] Kiểm tra với IDEA 21: 45 cảnh đã có video phải hiện Xong và không bị gửi lại.
+- [x] **Đọc `Videos/`**: cảnh có file video trùng số cảnh (`001.mp4`, `001_(1).mp4`, `001_v2.mp4`…) là **Xong**.
+- [x] **Trạng thái mỗi cảnh:** Xong · Thiếu ảnh · Sẵn sàng · Đang chạy · Lỗi.
+- [x] **Chạy** chỉ gửi cảnh *Sẵn sàng*, tức là chưa có video và đủ ảnh.
+- [x] **Lưu video mới** vào `<dự án>/Videos/NNN.mp4`. Làm lại thì `NNN_v2.mp4`, `NNN_v3.mp4`…, không ghi đè.
+- [x] **Tắt app rồi mở lại** thì chạy tiếp: task đã gửi được nhớ, chỉ theo dõi tiếp, không gửi lại.
+- [x] **Làm lại** chỉ khi bấm: "Làm lại cảnh này", "Làm lại các cảnh lỗi", "Làm lại các cảnh đã chọn".
+- [x] Kiểm tra với IDEA 21: 45 cảnh đã có video phải hiện Xong và không bị gửi lại.
 
 ### Bước 4 – Màn hình dự án gọn hơn (bản 1.09)
 - [ ] **Phần trên cố định:**

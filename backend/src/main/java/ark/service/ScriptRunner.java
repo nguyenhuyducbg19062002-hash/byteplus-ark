@@ -927,7 +927,9 @@ public class ScriptRunner {
 
     /** output/videos/&lt;folder&gt;/&lt;mã&gt;.mp4; nếu đã có (làm lại) thì &lt;mã&gt;_v2.mp4, _v3… để không mất bản cũ. */
     private Path freeTarget(ScriptProject project, String code, String ext) throws IOException {
-        Path dir = fileLibrary.root().resolve("videos").resolve(project.getFolder());
+        // Dự án theo thư mục: lưu thẳng vào <dự án>/Videos (tạo nếu chưa có)
+        Path dir = project.isFolderProject() ? ProjectFolderService.videoDirOf(project)
+                : fileLibrary.root().resolve("videos").resolve(project.getFolder());
         Files.createDirectories(dir);
         Path t = dir.resolve(code + "." + ext);
         for (int v = 2; Files.exists(t); v++) t = dir.resolve(code + "_v" + v + "." + ext);

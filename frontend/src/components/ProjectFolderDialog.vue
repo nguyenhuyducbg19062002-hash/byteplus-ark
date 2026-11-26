@@ -71,7 +71,8 @@ async function openProject() {
     const i = r.imported
     ElMessage.success(
       `${r.created ? 'Đã mở' : 'Đã quét lại'} dự án ${r.project.name}: ${i.created + i.updated + i.unchanged} cảnh` +
-        (i.created || i.updated ? ` (${i.created} mới, ${i.updated} cập nhật)` : '')
+        (i.created || i.updated ? ` (${i.created} mới, ${i.updated} cập nhật)` : '') +
+        (r.synced ? ` · gán ${r.synced.refsAssigned} ảnh từ thư mục · ${r.synced.scenesDone} cảnh đã có video` : '')
     )
     emit('opened', r)
     emit('update:modelValue', false)

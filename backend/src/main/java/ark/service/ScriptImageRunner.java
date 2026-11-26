@@ -162,7 +162,7 @@ public class ScriptImageRunner {
             try {
                 out = ImageGenerator.run(ArkClient.from(config), p, tmp, say);
                 SavedOutput first = out.get(0);
-                Path dir = refDir(project).resolve(REVIEW_DIR);
+                Path dir = pendingDir(project);
                 Path target = unique(dir, r.getCode() + "_" + java.time.LocalDateTime.now().format(STAMP), ext(first.file()));
                 Files.move(first.file(), target, StandardCopyOption.REPLACE_EXISTING);
                 GeneratedFile f = fileLibrary.recordFor(project.getId(), new SavedOutput(target, first.sourceUrl()), p.model.id(), p.prompt, null);
@@ -201,7 +201,14 @@ public class ScriptImageRunner {
 
     /** Thư mục ảnh tham chiếu của dự án: output/assets/&lt;thư mục dự án&gt;. */
     public Path refDir(ScriptProject p) {
+        if (p.isFolderProject()) return ProjectFolderService.refDirOf(p); // dự án theo thư mục: <dự án>/Ảnh tham chiếu
         return fileLibrary.root().resolve("assets").resolve(p.getFolder());
+    }
+
+    /** Ảnh AI chờ duyệt: dự án theo thư mục → &lt;dự án&gt;/Ảnh chờ duyệt, còn lại output/assets/&lt;dự án&gt;/_cho-duyet. */
+    public Path pendingDir(ScriptProject p) {
+        if (p.isFolderProject()) return ProjectFolderService.pendingDirOf(p);
+        return refDir(p).resolve(REVIEW_DIR);
     }
 
     /**
@@ -321,7 +328,18 @@ public class ScriptImageRunner {
 
     private void deleteFileQuietly(Long fileId) {
         try {
+            GeneratedFile f = fileLibrary.existing(List.of(fileId)).stream().findFirst().orElse(null);
+            if (f != null && fileLibrary.outsideOutput(f)) {
+                // Ảnh trong thư mục dự án của người dùng: không xoá, cất vào _bo/ bên cạnh
+                Path p = fileLibrary.pathOf(f);
+                if (Files.isRegularFile(p)) {
+                    String n = p.getFileName().toString();
+                    String base = n.contains(".") ? n.substring(0, n.lastIndexOf('.')) : n;
+                    Files.move(p, unique(p.getParent().resolve("_bo"), base, ext(p)));
+                }
+            }
             fileLibrary.delete(fileId);
+
         } catch (Exception e) {
             log.warn("Cannot delete pending image {}: {}", fileId, e.getMessage());
         }

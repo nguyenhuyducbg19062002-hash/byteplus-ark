@@ -52,7 +52,7 @@ public class ScriptImportService {
     private static final Pattern PROMPT_DURATION = Pattern.compile("DURATION:\\s*(\\d+(?:\\.\\d+)?)\\s*SECONDS");
     /** Mã nhân vật trần (không có hậu tố trang phục) xuất hiện trong prompt, vd "CHAR_STR". */
     private static final Pattern BARE_CHAR = Pattern.compile("\\bCHAR_[A-Z]{2,}\\b(?!_)");
-    private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$");
+    private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_@-]{0,99}$");
     /** Mã nhân vật dạng gạch ngang có số bộ trang phục: CHAR-DANIEL-2 → nhân vật CHAR-DANIEL, bộ 2. */
     private static final Pattern HYPHEN_CHAR = Pattern.compile("^(CHAR-[A-Za-z0-9-]+?)-(\\d+)$");
     /** "1. GENERATION GOAL …" → bỏ số thứ tự đầu prompt. */
@@ -557,7 +557,10 @@ public class ScriptImportService {
             List<String> w = new ArrayList<>();
             List<String> refs = new ArrayList<>();
             for (String x : text(row, cRefs, fmt, eval).split("[;,\\n]+")) {
-                String c = x.trim().replaceFirst("^@", "");
+                // "CHAR-X", "@CHAR-X" hoặc "@Image 1 = CHAR-X" (thứ tự upload → @ImageN): lấy mã sau dấu =
+                String c = x.trim();
+                if (c.contains("=")) c = c.substring(c.lastIndexOf('=') + 1).trim();
+                c = c.replaceFirst("^@", "").trim();
                 if (c.isEmpty()) continue;
                 if (!CODE.matcher(c).matches()) w.add("Mã tham chiếu không hợp lệ: " + c);
                 else if (!refs.contains(c)) refs.add(c);
