@@ -1,6 +1,6 @@
 # Kế hoạch nâng cấp 1.06 – Kịch bản hàng loạt: **đọc thư mục dự án**, thiếu gì thì tạo
 
-Ngày lập: 26/11/2026 · Bản hiện tại: 1.05 · Trạng thái: **bước 1 xong (1.06); phần chính của bước 2 + 3 xong (1.07)**: tự gán ảnh trong thư mục, ảnh AI vào Ảnh chờ duyệt, video lưu vào Videos/, cảnh có video là Xong.
+Ngày lập: 26/11/2026 · Bản hiện tại: 1.05 · Trạng thái: **bước 1 xong (1.06); phần chính của bước 2 + 3 xong (1.07)**: tự gán ảnh trong thư mục, ảnh AI vào Ảnh chờ duyệt, video lưu vào Videos/, cảnh có video là Xong. **Bước 4 xong (1.09)**: thanh trên cố định + ô đếm bấm để lọc, dải tổng quan ảnh tham chiếu.
 
 Làm **từng bước một**. Xong mỗi bước, mình đóng gói một bản để bạn thử. Bạn duyệt xong mới làm bước tiếp theo.
 
@@ -86,15 +86,15 @@ Thư viện của dự án = thư mục dự án, nên 2 dự án trùng mã kh�
 - [x] Kiểm tra với IDEA 21: 45 cảnh đã có video phải hiện Xong và không bị gửi lại.
 
 ### Bước 4 – Màn hình dự án gọn hơn (bản 1.09)
-- [ ] **Phần trên cố định:**
+- [x] **Phần trên cố định:**
   - tên và đường dẫn dự án;
   - các ô đếm **Xong / Sẵn sàng / Thiếu ảnh / Lỗi / Đang chạy / Ảnh thiếu / Chờ duyệt**, bấm vào ô nào thì lọc theo ô đó;
   - nút Chạy / Tạm dừng / Quét lại.
-- [ ] **Dải tổng quan ảnh tham chiếu:**
+- [x] **Dải tổng quan ảnh tham chiếu:**
   - Có dòng tóm tắt "64/70 đã có · 6 thiếu · 2 chờ duyệt".
   - Chia hàng theo Nhân vật / Bối cảnh / Đạo cụ, ô thiếu màu đỏ xếp đầu.
   - Bấm vào ô thì nhảy tới thẻ ảnh.
-- [ ] **Chỉ danh sách cuộn**, phần trên đứng yên. Mở dự án thì bộ lọc về "Tất cả".
+- [x] **Chỉ danh sách cuộn**, phần trên đứng yên. Mở dự án thì bộ lọc về "Tất cả".
 
 ### Bước 5 – Sửa prompt (bản 1.10, tuỳ chọn)
 - [ ] Prompt cảnh / prompt ảnh sửa trong app thì lưu ở `.ark/`, Excel gốc không đổi. Quét lại không làm mất bản đã sửa.

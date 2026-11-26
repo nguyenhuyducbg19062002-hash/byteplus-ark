@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, onActivated, onDeactivated } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onActivated, onDeactivated } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { formatTime } from '../api'
 import { useAsync } from '../composables/useAsync'
@@ -229,11 +229,58 @@ const IMAGE_STATUS = {
   FAILED: { status: 'failed', label: 'Tạo ảnh lỗi' }
 }
 const missingRefs = computed(() => refs.data.value.filter((r) => !r.file && r.usedBy > 0).length)
-/** Mã có ảnh AI chờ duyệt được đưa lên đầu lưới. */
+/** Trạng thái ảnh của một mã: thiếu / chờ duyệt / đang tạo / bị chặn / có. */
+function refState(r) {
+  if (r.imageStatus === 'REVIEW') return 'review'
+  if (r.imageStatus === 'PENDING' || r.imageStatus === 'GENERATING') return 'generating'
+  if (!r.file) return 'missing'
+  if (r.blockedReason) return 'blocked'
+  return 'ok'
+}
+const REF_STATE = {
+  missing: { label: 'thiếu', chip: 'bg-rose-50 text-rose-700 ring-rose-300 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/40' },
+  blocked: { label: 'bị chặn', chip: 'bg-rose-50 text-rose-700 ring-rose-300 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/40' },
+  review: { label: 'chờ duyệt', chip: 'bg-indigo-50 text-indigo-700 ring-indigo-300 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-500/40' },
+  generating: { label: 'đang tạo', chip: 'bg-amber-50 text-amber-700 ring-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/40' },
+  ok: { label: 'có ảnh', chip: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30' }
+}
+const STATE_ORDER = { missing: 0, blocked: 1, review: 2, generating: 3, ok: 4 }
+/** Lọc lưới ảnh: '' tất cả · missing (thiếu / bị chặn) · review (chờ duyệt). */
+const refFilter = ref('')
+const refSummary = computed(() => {
+  const r = { total: 0, ok: 0, missing: 0, review: 0, generating: 0, blocked: 0 }
+  for (const x of refs.data.value || []) {
+    r.total++
+    r[refState(x)]++
+  }
+  return r
+})
+/** Dải tổng quan: theo Nhân vật / Bối cảnh / Đạo cụ / Khác, mã thiếu xếp đầu. */
+const refGroups = computed(() => {
+  const by = {}
+  for (const x of refs.data.value || []) (by[x.kind] ||= []).push(x)
+  return Object.keys(KIND).filter((k) => by[k]?.length).map((k) => ({
+    kind: k,
+    label: KIND[k],
+    items: by[k].slice().sort((a, b) => STATE_ORDER[refState(a)] - STATE_ORDER[refState(b)] || a.code.localeCompare(b.code))
+  }))
+})
+/** Mã có ảnh AI chờ duyệt / thiếu ảnh được đưa lên đầu lưới; lọc theo ô đã bấm. */
 const sortedRefs = computed(() => {
-  const list = refs.data.value || []
+  let list = refs.data.value || []
+  if (refFilter.value === 'missing') list = list.filter((r) => ['missing', 'blocked'].includes(refState(r)))
+  else if (refFilter.value === 'review') list = list.filter((r) => refState(r) === 'review')
   return [...list.filter((r) => r.imageStatus === 'REVIEW'), ...list.filter((r) => r.imageStatus !== 'REVIEW')]
 })
+const flashRef = ref('')
+/** Bấm mã trong dải tổng quan → cuộn tới thẻ ảnh của mã đó (bỏ lọc nếu thẻ đang bị ẩn). */
+async function jumpToRef(code) {
+  if (!sortedRefs.value.some((r) => r.code === code)) refFilter.value = ''
+  await nextTick()
+  document.getElementById('ref-' + code)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  flashRef.value = code
+  setTimeout(() => flashRef.value === code && (flashRef.value = ''), 2000)
+}
 /** Ảnh nhân vật đã có nhưng chưa có asset Virtual Portrait Active. */
 const vpPending = computed(() =>
   refs.data.value.filter((r) => r.file && (r.kind === 'CHARACTER' || r.blockedReason) && r.file.assetStatus !== 'Active' && r.file.assetStatus !== 'Processing')
@@ -254,19 +301,37 @@ const PROJECT_STATUS = {
 }
 const KIND = { CHARACTER: 'Nhân vật', LOCATION: 'Bối cảnh', PROP: 'Đạo cụ', OTHER: 'Khác' }
 
+/** Ô đếm trên thanh cố định: bấm ô clip → lọc bảng clip; bấm ô ảnh → tab Ảnh tham chiếu lọc theo ô đó. */
 const tiles = computed(() => {
-  const c = project.value?.counts || {}
+  const p = project.value
+  const c = p?.counts || {}
+  const ready = Math.max((c.PENDING || 0) - (p?.blockedClips || 0), 0)
   return [
-    { key: '', label: 'Tổng clip', value: c.TOTAL, tone: 'text-slate-700 dark:text-zinc-100' },
-    { key: 'PENDING', label: 'Chờ chạy', value: c.PENDING, tone: 'text-slate-600 dark:text-zinc-300' },
-    { key: 'BLOCKED', label: 'Chờ ảnh', value: project.value?.blockedClips, tone: 'text-rose-600 dark:text-rose-400' },
-    { key: 'GENERATING', label: 'Đang tạo', value: c.GENERATING, tone: 'text-amber-600 dark:text-amber-400' },
+    { key: '', label: 'Tất cả', value: c.TOTAL, tone: 'text-slate-700 dark:text-zinc-100' },
+    { key: 'READY', label: 'Sẵn sàng', value: ready, tone: 'text-sky-600 dark:text-sky-400', title: 'Chờ chạy, đủ ảnh tham chiếu' },
+    { key: 'BLOCKED', label: 'Thiếu ảnh', value: p?.blockedClips, tone: 'text-rose-600 dark:text-rose-400', title: 'Clip chờ chạy nhưng còn mã ảnh chưa có ảnh' },
+    { key: 'GENERATING', label: 'Đang chạy', value: c.GENERATING, tone: 'text-amber-600 dark:text-amber-400' },
     { key: 'SUCCEEDED', label: 'Xong', value: c.SUCCEEDED, tone: 'text-emerald-600 dark:text-emerald-400' },
     { key: 'FAILED', label: 'Lỗi', value: c.FAILED, tone: 'text-rose-600 dark:text-rose-400' },
-    { key: 'CANCELLED', label: 'Đã huỷ', value: c.CANCELLED, tone: 'text-slate-500' },
-    { key: 'WARNING', label: 'Cảnh báo', value: project.value?.warningClips, tone: 'text-indigo-600 dark:text-indigo-400' }
+    { key: 'CANCELLED', label: 'Đã huỷ', value: c.CANCELLED, tone: 'text-slate-500', hideZero: true },
+    { key: 'WARNING', label: 'Cảnh báo', value: p?.warningClips, tone: 'text-indigo-600 dark:text-indigo-400', hideZero: true }
+  ].filter((t) => !t.hideZero || t.value)
+})
+const refTiles = computed(() => {
+  const p = project.value
+  return [
+    { key: 'missing', label: 'Ảnh thiếu', value: p?.refsMissing, tone: 'text-rose-600 dark:text-rose-400', title: 'Mã ảnh tham chiếu chưa có ảnh' },
+    { key: 'review', label: 'Chờ duyệt', value: p?.imagesReview, tone: 'text-indigo-600 dark:text-indigo-400', title: 'Ảnh AI đang chờ bạn duyệt' }
   ]
 })
+function pickClipTile(key) {
+  filter.value = key
+  tab.value = 'clips'
+}
+function pickRefTile(key) {
+  refFilter.value = refFilter.value === key && tab.value === 'refs' ? '' : key
+  tab.value = 'refs'
+}
 const progress = computed(() => {
   const c = project.value?.counts
   return c?.TOTAL ? Math.round(((c.SUCCEEDED || 0) * 100) / c.TOTAL) : 0
@@ -300,6 +365,7 @@ onDeactivated(() => clearTimeout(timer))
 watch(currentId, () => {
   query.page = 1
   filter.value = ''
+  refFilter.value = ''
   expanded.value = []
   importResult.value = null
   clearSelection()
@@ -753,9 +819,6 @@ function downloadZip(what) {
         <el-button type="primary" @click="folderDialog = true"><el-icon><FolderOpened /></el-icon>&nbsp;Mở thư mục dự án</el-button>
       </el-tooltip>
       <template v-if="project?.rootDir">
-        <el-button :loading="busy === 'rescan'" :disabled="project.status === 'RUNNING'" :title="project.status === 'RUNNING' ? 'Tạm dừng dự án rồi mới quét lại' : 'Đọc lại Excel và đếm lại ảnh / video trong thư mục'" @click="rescan">
-          <el-icon><RefreshRight /></el-icon>&nbsp;Quét lại
-        </el-button>
         <el-button @click="openInExplorer(project.rootDir)"><el-icon><Folder /></el-icon>&nbsp;Mở thư mục</el-button>
       </template>
       <el-dropdown trigger="click" @command="(c) => (c === 'excel' ? pickExcel(false) : c === 'folder' ? resultFolderInput.click() : pickExcel(true))">
@@ -815,10 +878,11 @@ function downloadZip(what) {
           </div>
         </el-alert>
 
-        <!-- trạng thái + điều khiển -->
-        <section class="card mb-6 p-5">
+        <!-- thanh cố định: tên + đường dẫn, ô đếm (bấm để lọc), nút chạy – đứng yên khi cuộn danh sách -->
+        <section class="card sticky top-0 z-30 mb-4 bg-white px-5 py-3 shadow-md shadow-slate-900/5 dark:bg-zinc-800">
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="text-lg font-semibold">{{ project.name }}</h2>
+            <span v-if="project.rootDir" class="hidden max-w-[28rem] truncate text-xs text-slate-400 lg:inline" :title="project.rootDir">📁 {{ project.rootDir }}</span>
             <StatusBadge :status="PROJECT_STATUS[project.status].status" :label="PROJECT_STATUS[project.status].label" />
             <el-tag v-if="project.onlySelected" type="warning" effect="plain" size="small">
               Chỉ chạy clip đã chọn{{ project.selectedPending ? ` · còn ${project.selectedPending}` : '' }}
@@ -856,12 +920,50 @@ function downloadZip(what) {
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
+              <el-button v-if="project.rootDir" :loading="busy === 'rescan'" :disabled="project.status === 'RUNNING'" :title="project.status === 'RUNNING' ? 'Tạm dừng dự án rồi mới quét lại' : 'Đọc lại Excel và ảnh / video trong thư mục'" @click="rescan">
+                <el-icon><RefreshRight /></el-icon>&nbsp;Quét lại
+              </el-button>
               <el-button type="danger" plain :disabled="project.status === 'RUNNING'" :loading="busy === 'delete'" @click="removeProject">
                 <el-icon><Delete /></el-icon>
               </el-button>
             </div>
           </div>
-          <p v-if="project.pausedReason" class="mt-2 text-sm" :class="project.status === 'DONE' ? 'text-emerald-600' : 'text-amber-600 dark:text-amber-400'">
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              v-for="t in tiles"
+              :key="t.key"
+              type="button"
+              :title="t.title"
+              class="flex items-baseline gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 ring-1 transition hover:shadow-sm dark:bg-zinc-900/50"
+              :class="filter === t.key && tab === 'clips' ? 'ring-2 ring-indigo-500' : 'ring-slate-200/70 dark:ring-zinc-700/60'"
+              @click="pickClipTile(t.key)"
+            >
+              <span class="text-lg font-semibold tabular-nums" :class="t.tone">{{ t.value ?? 0 }}</span>
+              <span class="text-xs text-slate-500 dark:text-zinc-400">{{ t.label }}</span>
+            </button>
+            <span class="mx-1 h-6 w-px bg-slate-200 dark:bg-zinc-700" />
+            <button
+              v-for="t in refTiles"
+              :key="t.key"
+              type="button"
+              :title="t.title"
+              class="flex items-baseline gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 ring-1 transition hover:shadow-sm dark:bg-zinc-900/50"
+              :class="refFilter === t.key && tab === 'refs' ? 'ring-2 ring-indigo-500' : 'ring-slate-200/70 dark:ring-zinc-700/60'"
+              @click="pickRefTile(t.key)"
+            >
+              <span class="text-lg font-semibold tabular-nums" :class="t.tone">{{ t.value ?? 0 }}</span>
+              <span class="text-xs text-slate-500 dark:text-zinc-400">{{ t.label }}</span>
+            </button>
+            <div class="ml-auto flex min-w-[180px] items-center gap-2">
+              <el-progress class="flex-1" :percentage="progress" :stroke-width="8" :show-text="false" :status="progress === 100 ? 'success' : undefined" />
+              <span class="text-xs font-medium tabular-nums text-slate-500">{{ project.counts.SUCCEEDED || 0 }}/{{ project.counts.TOTAL }} · {{ progress }}%</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- thông báo + cấu hình -->
+        <section class="card mb-6 px-5 py-3">
+          <p v-if="project.pausedReason" class="text-sm" :class="project.status === 'DONE' ? 'text-emerald-600' : 'text-amber-600 dark:text-amber-400'">
             {{ project.pausedReason }}
           </p>
           <p v-if="project.imagesPending" class="mt-1 text-sm text-indigo-600 dark:text-indigo-400">
@@ -874,24 +976,8 @@ function downloadZip(what) {
           <p v-if="project.cooldownUntil && project.status === 'RUNNING'" class="mt-1 text-xs text-amber-600">
             BytePlus đang giới hạn tốc độ – tạm nghỉ đến {{ formatTime(project.cooldownUntil) }}
           </p>
-          <el-progress class="mt-4" :percentage="progress" :stroke-width="10" :status="progress === 100 ? 'success' : undefined" />
-
-          <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
-            <button
-              v-for="t in tiles"
-              :key="t.key"
-              type="button"
-              class="rounded-xl bg-slate-50 px-4 py-3 text-left ring-1 transition hover:shadow-sm dark:bg-zinc-900/50"
-              :class="filter === t.key && tab === 'clips' ? 'ring-indigo-500' : 'ring-slate-200/70 dark:ring-zinc-700/60'"
-              @click="(filter = t.key), (tab = 'clips')"
-            >
-              <div class="text-2xl font-semibold tabular-nums" :class="t.tone">{{ t.value ?? 0 }}</div>
-              <div class="text-xs text-slate-500 dark:text-zinc-400">{{ t.label }}</div>
-            </button>
-          </div>
-
           <!-- cấu hình -->
-          <el-collapse class="mt-5">
+          <el-collapse :class="project.pausedReason || project.imagesPending || project.imagesReview ? 'mt-3' : ''">
             <el-collapse-item name="cfg">
               <template #title>
                 <span class="text-sm font-medium">Cấu hình chạy</span>
@@ -1296,13 +1382,46 @@ function downloadZip(what) {
                 (vd <code>CHAR_YVO_NAVYTEE_01.png</code>) rồi bấm “Tự ghép”, hoặc tải lên / chọn từ thư viện cho từng mã. Ảnh gửi đi đúng thứ tự Ảnh 1, 2… của clip.
               </p>
             </div>
+            <!-- dải tổng quan ảnh tham chiếu: theo loại, mã thiếu xếp đầu, bấm mã để nhảy tới thẻ ảnh -->
+            <div v-if="refSummary.total" class="mb-5 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200/70 dark:bg-zinc-900/50 dark:ring-zinc-700/60">
+              <div class="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                <span class="font-semibold">{{ refSummary.ok + refSummary.blocked }}/{{ refSummary.total }} mã đã có ảnh</span>
+                <span v-if="refSummary.missing" class="text-rose-600 dark:text-rose-400">· {{ refSummary.missing }} thiếu</span>
+                <span v-if="refSummary.blocked" class="text-rose-600 dark:text-rose-400">· {{ refSummary.blocked }} bị chặn</span>
+                <span v-if="refSummary.review" class="text-indigo-600 dark:text-indigo-400">· {{ refSummary.review }} chờ duyệt</span>
+                <span v-if="refSummary.generating" class="text-amber-600 dark:text-amber-400">· {{ refSummary.generating }} đang tạo</span>
+                <el-radio-group v-model="refFilter" size="small" class="ml-auto">
+                  <el-radio-button value="">Tất cả ({{ refSummary.total }})</el-radio-button>
+                  <el-radio-button value="missing">Thiếu ({{ refSummary.missing + refSummary.blocked }})</el-radio-button>
+                  <el-radio-button value="review">Chờ duyệt ({{ refSummary.review }})</el-radio-button>
+                </el-radio-group>
+              </div>
+              <div class="space-y-2">
+                <div v-for="g in refGroups" :key="g.kind" class="flex gap-3">
+                  <div class="w-20 shrink-0 pt-0.5 text-xs font-medium text-slate-500 dark:text-zinc-400">{{ g.label }} ({{ g.items.length }})</div>
+                  <div class="flex flex-wrap gap-1">
+                    <button
+                      v-for="r in g.items"
+                      :key="r.code"
+                      type="button"
+                      class="rounded-md px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-inset transition hover:brightness-95"
+                      :class="REF_STATE[refState(r)].chip"
+                      :title="`${r.code} – ${REF_STATE[refState(r)].label}${r.name ? ' · ' + r.name : ''} · ${r.usedBy} clip dùng`"
+                      @click="jumpToRef(r.code)"
+                    >{{ r.code }}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <AsyncState :loading="refs.loading.value && !refs.data.value.length" :error="refs.error.value" :empty="!refs.data.value.length" empty-text="Dự án chưa có mã ảnh tham chiếu" @retry="refs.run()">
+              <p v-if="!sortedRefs.length" class="hint py-6 text-center">Không có mã nào trong mục này.</p>
               <div class="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-4">
                 <div
                   v-for="r in sortedRefs"
+                  :id="'ref-' + r.code"
                   :key="r.code"
-                  class="overflow-hidden rounded-xl bg-slate-50 ring-1 dark:bg-zinc-900/50"
-                  :class="r.pendingFile ? 'ring-2 ring-indigo-400 dark:ring-indigo-500/60' : r.file && !r.blockedReason ? 'ring-slate-200/70 dark:ring-zinc-700/60' : 'ring-2 ring-rose-400 dark:ring-rose-500/60'"
+                  class="scroll-mt-48 overflow-hidden rounded-xl bg-slate-50 ring-1 transition-shadow dark:bg-zinc-900/50"
+                  :class="flashRef === r.code ? 'ring-4 ring-amber-400' : r.pendingFile ? 'ring-2 ring-indigo-400 dark:ring-indigo-500/60' : r.file && !r.blockedReason ? 'ring-slate-200/70 dark:ring-zinc-700/60' : 'ring-2 ring-rose-400 dark:ring-rose-500/60'"
                 >
                   <div class="relative aspect-video bg-slate-100 dark:bg-zinc-800">
                     <el-image

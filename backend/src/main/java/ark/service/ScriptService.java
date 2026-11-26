@@ -383,6 +383,9 @@ public class ScriptService {
                     case "BLOCKED" -> {
                         if (c.getStatus() != ScriptClip.Status.PENDING || check.missing(c).isEmpty()) return false;
                     }
+                    case "READY" -> { // Sẵn sàng: chờ chạy và đủ ảnh
+                        if (c.getStatus() != ScriptClip.Status.PENDING || !check.missing(c).isEmpty()) return false;
+                    }
                     case "WARNING" -> {
                         if (c.getWarnings() == null) return false;
                     }

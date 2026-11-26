@@ -187,7 +187,7 @@ public class ScriptProjectController {
         return service.clipSpecs(id);
     }
 
-    /** status: PENDING | GENERATING | SUCCEEDED | FAILED | CANCELLED | BLOCKED (chờ ảnh) | WARNING (có cảnh báo). */
+    /** status: PENDING | GENERATING | SUCCEEDED | FAILED | CANCELLED | READY (chờ chạy, đủ ảnh) | BLOCKED (chờ ảnh) | WARNING (có cảnh báo). */
     @GetMapping("/script-projects/{id}/clips")
     public PageResponse<ScriptClipDto> clips(@PathVariable Long id,
                                              @RequestParam(required = false) String status,
