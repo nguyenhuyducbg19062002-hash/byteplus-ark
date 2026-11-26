@@ -17,21 +17,23 @@ import org.springframework.web.bind.annotation.RestController;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Thao tác với máy đang chạy app (backend chỉ nghe 127.0.0.1): hộp thoại chọn thư mục của Windows (trình duyệt không cho
- * biết đường dẫn thật của thư mục) và mở thư mục bằng Explorer.
+ * Thao tác với máy đang chạy app (backend chỉ nghe 127.0.0.1): hộp thoại chọn thư mục của Windows / macOS (trình duyệt không
+ * cho biết đường dẫn thật của thư mục) và mở thư mục bằng Explorer / Finder.
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/system")
 public class SystemController {
     private static final boolean WINDOWS = System.getProperty("os.name", "").toLowerCase().contains("win");
+    private static final boolean MAC = System.getProperty("os.name", "").toLowerCase().contains("mac");
 
     /** Hộp thoại chọn thư mục. Trả về {path} hoặc {} nếu bấm Huỷ. */
     @PostMapping("/pick-folder")
     public Map<String, String> pickFolder(@RequestBody(required = false) Map<String, String> body) throws Exception {
-        if (!WINDOWS) throw new IllegalStateException("Hộp chọn thư mục chỉ có trên Windows – dán đường dẫn thư mục vào ô");
         String initial = body == null ? null : body.get("initial");
         String title = body == null || body.get("title") == null ? "Chọn thư mục dự án" : body.get("title");
+        if (MAC) return pickFolderMac(initial, title);
+        if (!WINDOWS) throw new IllegalStateException("Máy này không có hộp chọn thư mục – dán đường dẫn thư mục vào ô");
         StringBuilder ps = new StringBuilder();
         ps.append("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n");
         ps.append("Add-Type -AssemblyName System.Windows.Forms\n");
@@ -62,13 +64,43 @@ public class SystemController {
         return path.isEmpty() ? Map.of() : Map.of("path", path);
     }
 
-    /** Mở thư mục bằng Explorer. */
+    /** macOS: hộp chọn thư mục của Finder (osascript "choose folder"); bấm Huỷ → {}. */
+    private Map<String, String> pickFolderMac(String initial, String title) throws Exception {
+        StringBuilder as = new StringBuilder("POSIX path of (choose folder with prompt \"").append(asQuote(title)).append('"');
+        if (initial != null && !initial.isBlank() && Files.isDirectory(Path.of(initial.trim()))) {
+            as.append(" default location (POSIX file \"").append(asQuote(initial.trim())).append("\")");
+        }
+        as.append(')');
+        Process proc = new ProcessBuilder("osascript", "-e", "activate", "-e", as.toString()).start();
+        if (!proc.waitFor(15, TimeUnit.MINUTES)) {
+            proc.destroyForcibly();
+            return Map.of();
+        }
+        String out = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        if (proc.exitValue() != 0) {
+            String err = new String(proc.getErrorStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (err.contains("-128")) return Map.of(); // bấm Huỷ
+            log.warn("Hộp chọn thư mục lỗi ({}): {}", proc.exitValue(), err);
+            throw new IllegalStateException("Không mở được hộp chọn thư mục – dán đường dẫn thư mục vào ô");
+        }
+        String path = out.length() > 1 && out.endsWith("/") ? out.substring(0, out.length() - 1) : out;
+        return path.isEmpty() ? Map.of() : Map.of("path", path);
+    }
+
+    private static String asQuote(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /** Mở thư mục bằng Explorer (Windows) / Finder (macOS). */
     @PostMapping("/open-folder")
     public ResponseEntity<Void> openFolder(@RequestBody Map<String, String> body) throws IOException {
         String p = body == null ? null : body.get("path");
         if (p == null || p.isBlank() || !Files.isDirectory(Path.of(p.trim()))) throw new IllegalArgumentException("Không có thư mục " + p);
-        if (!WINDOWS) throw new IllegalStateException("Chỉ mở được thư mục trên Windows");
-        new ProcessBuilder("explorer.exe", Path.of(p.trim()).toAbsolutePath().normalize().toString()).start();
+        String dir = Path.of(p.trim()).toAbsolutePath().normalize().toString();
+        if (WINDOWS) new ProcessBuilder("explorer.exe", dir).start();
+        else if (MAC) new ProcessBuilder("open", dir).start();
+        else if (java.awt.Desktop.isDesktopSupported()) java.awt.Desktop.getDesktop().open(new java.io.File(dir));
+        else throw new IllegalStateException("Máy này không mở được thư mục – mở bằng tay: " + dir);
         return ResponseEntity.noContent().build();
     }
 

@@ -12,3 +12,4 @@ desktop-legacy/dist/
 *.jar
 !backend/.mvn/wrapper/*.jar
 build-desktop/
+build-mac/

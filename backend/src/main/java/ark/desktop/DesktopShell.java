@@ -63,7 +63,27 @@ public class DesktopShell {
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         installTray();
+        installMacHandlers();
         show();
+    }
+
+    /** macOS: bấm biểu tượng Ark Studio ở Dock khi app đang chạy → mở lại cửa sổ; Cmd+Q → thoát như menu Thoát. */
+    private void installMacHandlers() {
+        if (!System.getProperty("os.name", "").toLowerCase().contains("mac") || !Desktop.isDesktopSupported()) return;
+        try {
+            Desktop d = Desktop.getDesktop();
+            if (d.isSupported(Desktop.Action.APP_EVENT_REOPENED)) {
+                d.addAppEventListener((java.awt.desktop.AppReopenedListener) e -> new Thread(this::show, "ark-reopen").start());
+            }
+            if (d.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
+                d.setQuitHandler((e, response) -> {
+                    response.cancelQuit();
+                    new Thread(this::confirmQuit, "ark-quit").start();
+                });
+            }
+        } catch (Exception e) {
+            log.warn("macOS app events unavailable: {}", e.getMessage());
+        }
     }
 
     // ---------- cửa sổ ----------

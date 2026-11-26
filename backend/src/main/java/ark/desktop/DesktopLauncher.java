@@ -136,7 +136,7 @@ public final class DesktopLauncher {
         }
         JOptionPane.showMessageDialog(null,
                 "Một bản Ark Studio khác (bản cũ) vẫn đang chạy nền nên chưa mở được bản " + AppVersion.version() + " vừa cài.\n\n"
-                        + "Cách sửa: chuột phải biểu tượng Ark Studio ở khay hệ thống (góc phải thanh taskbar, có thể nằm trong mũi tên ^)"
+                        + "Cách sửa: bấm biểu tượng Ark Studio ở khay hệ thống (Windows: góc phải thanh taskbar, có thể nằm trong mũi tên ^; Mac: thanh menu trên cùng)"
                         + " › Thoát, rồi mở lại Ark Studio.\n\nClip đang tạo dở không mất: mở lại rồi bấm Chạy để theo dõi tiếp.",
                 "Ark Studio", JOptionPane.WARNING_MESSAGE);
     }
@@ -168,6 +168,13 @@ public final class DesktopLauncher {
 
     static Path findBrowser() {
         List<Path> candidates = new ArrayList<>();
+        if (System.getProperty("os.name", "").toLowerCase().contains("mac")) {
+            // macOS: Chrome / Edge chế độ --app nếu có; không có thì mở trình duyệt mặc định (Safari)
+            for (String base : List.of("/Applications", System.getProperty("user.home") + "/Applications")) {
+                candidates.add(Path.of(base, "Google Chrome.app", "Contents", "MacOS", "Google Chrome"));
+                candidates.add(Path.of(base, "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge"));
+            }
+        }
         for (String env : List.of("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")) {
             String base = System.getenv(env);
             if (base == null) continue;
