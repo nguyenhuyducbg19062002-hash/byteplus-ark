@@ -181,6 +181,12 @@ public class ScriptProjectController {
         return service.redo(id, req);
     }
 
+    /** Thông số gọn của mọi clip (thời lượng, số ảnh, độ dài prompt) – để màn hình tính lại cảnh báo ngay khi đổi model. */
+    @GetMapping("/script-projects/{id}/clip-specs")
+    public List<java.util.Map<String, Object>> clipSpecs(@PathVariable Long id) {
+        return service.clipSpecs(id);
+    }
+
     /** status: PENDING | GENERATING | SUCCEEDED | FAILED | CANCELLED | BLOCKED (chờ ảnh) | WARNING (có cảnh báo). */
     @GetMapping("/script-projects/{id}/clips")
     public PageResponse<ScriptClipDto> clips(@PathVariable Long id,

@@ -356,6 +356,22 @@ public class ScriptService {
 
     // ---------- clip ----------
 
+    public List<Map<String, Object>> clipSpecs(Long id) {
+        project(id);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (ScriptClip c : clips.findByProjectIdOrderBySeq(id)) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", c.getId());
+            m.put("code", c.getCode());
+            m.put("duration", c.getDuration());
+            m.put("images", c.refList().size());
+            m.put("promptLen", c.getPrompt() == null ? 0 : c.getPrompt().length());
+            m.put("status", c.getStatus().name());
+            out.add(m);
+        }
+        return out;
+    }
+
     public PageResponse<ScriptClipDto> clips(Long id, String status, String q, int page, int size) {
         Map<String, ScriptReference> refs = refMap(id);
         ScriptRunner.RefCheck check = runner.refCheck(refs);

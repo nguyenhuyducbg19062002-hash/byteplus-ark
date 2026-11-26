@@ -132,21 +132,64 @@ const durationRule = computed(() => {
   const m = settingsModel.value
   return m ? `Thời lượng: ${m.name} nhận ${m.minDuration}–${m.maxDuration}s – clip ngoài khoảng này được kẹp về ${m.minDuration} / ${m.maxDuration}s.` : ''
 })
-/** Số ảnh tham chiếu tối đa / độ dài prompt tối đa của nguồn + model đã lưu của dự án (cảnh báo trước khi chạy). */
-const projMaxImages = computed(() => {
+/**
+ * Giới hạn của nguồn + model ĐANG CHỌN trong form cấu hình (chưa cần Lưu): số ảnh tối đa, thời lượng nhận được, độ dài prompt.
+ * Danh sách clip bên dưới dùng giới hạn này nên đổi model là cảnh báo từng clip tính lại ngay.
+ */
+function specOf(provider, id) {
+  if (provider === 'BOTSD') {
+    return { label: 'BOTSD · ' + botsdModelName(id), maxImages: BOTSD_MAX_IMAGES[id] || 30, durations: BOTSD_SECONDS[id] || [5, 10, 15],
+      promptMax: id === 'sd25' || id === 'sd25hd' ? 15000 : 20000 }
+  }
+  if (provider === 'API888') {
+    const m = api888Models.value.find((x) => x.id === id)
+    return { label: '888API · ' + id, maxImages: m?.maxImages || 9, durations: m?.durations || null, min: m?.min ?? 4, max: m?.max ?? 15,
+      promptMax: m?.promptMax || null }
+  }
+  const m = models.video.find((x) => x.id === id)
+  return { label: 'BytePlus · ' + (m?.name || id), maxImages: m?.maxRefImages || null, durations: null, min: m?.minDuration ?? null,
+    max: m?.maxDuration ?? null, promptMax: null }
+}
+const modelIdOf = (o) => (o.provider === 'BOTSD' ? o.botsdModel : o.provider === 'API888' ? o.api888Model : o.model)
+const draftSpec = computed(() => specOf(settings.provider, modelIdOf(settings)))
+/** Form cấu hình đang khác nguồn / model đã lưu của dự án. */
+const specUnsaved = computed(() => {
   const p = project.value
-  if (!p) return null
-  if (p.provider === 'BOTSD') return BOTSD_MAX_IMAGES[p.botsdModel] || 30
-  if (p.provider === 'API888') return api888Models.value.find((m) => m.id === p.api888Model)?.maxImages || 9
-  return models.video.find((m) => m.id === p.model)?.maxRefImages || null
+  return !!p && ((p.provider || 'BYTEPLUS') !== settings.provider || modelIdOf(p) !== modelIdOf(settings))
 })
-const projPromptMax = computed(() => {
-  const p = project.value
-  if (!p) return null
-  if (p.provider === 'BOTSD') return p.botsdModel === 'sd25' || p.botsdModel === 'sd25hd' ? 15000 : 20000
-  if (p.provider === 'API888') return api888Models.value.find((m) => m.id === p.api888Model)?.promptMax || null
-  return null
-})
+const projMaxImages = computed(() => draftSpec.value.maxImages)
+const projPromptMax = computed(() => draftSpec.value.promptMax)
+/** Clip dài X giây sẽ gửi bao nhiêu giây với giới hạn sp (làm tròn lên mức gần nhất / kẹp trong min–max). */
+function sentSeconds(d, sp = draftSpec.value) {
+  if (sp.durations) return sp.durations.find((x) => x >= d) ?? sp.durations[sp.durations.length - 1]
+  let v = d
+  if (sp.max != null) v = Math.min(v, sp.max)
+  if (sp.min != null) v = Math.max(v, sp.min)
+  return v
+}
+/** Thông số gọn của mọi clip (không phân trang) để đếm clip quá giới hạn theo model đang chọn. */
+const specs = useAsync(() => api.get(`/script-projects/${currentId.value}/clip-specs`, { silent: true }), { initial: [] })
+function fitOf(sp) {
+  const r = { cut: [], images: [], prompt: [], total: 0 }
+  for (const c of specs.data.value || []) {
+    if (c.status === 'SUCCEEDED') continue
+    r.total++
+    if (sentSeconds(c.duration, sp) < c.duration) r.cut.push(c.code)
+    if (sp.maxImages && c.images > sp.maxImages) r.images.push(c.code)
+    if (sp.promptMax && c.promptLen > sp.promptMax) r.prompt.push(c.code)
+  }
+  r.ok = (specs.data.value || []).filter((c) => c.status !== 'SUCCEEDED').filter((c) =>
+    !r.cut.includes(c.code) && !r.images.includes(c.code) && !r.prompt.includes(c.code)).length
+  return r
+}
+const draftFit = computed(() => fitOf(draftSpec.value))
+/** "vừa 60/68" cho từng model trong danh sách chọn. */
+const fitLabel = (provider, id) => {
+  if (!specs.data.value?.length) return ''
+  const f = fitOf(specOf(provider, id))
+  return f.total ? `vừa ${f.ok}/${f.total} clip` : ''
+}
+const codesHint = (list) => (list.length > 12 ? list.slice(0, 12).join(', ') + ` … (+${list.length - 12})` : list.join(', '))
 watch(prov, (p) => p === 'API888' && loadApi888Models(), { immediate: true })
 /** Số dư của nguồn đang chọn (BOTSD Point / 888API). */
 const balance = ref(null)
@@ -238,7 +281,7 @@ async function refresh(all = true) {
   if (currentId.value && !project.value) currentId.value = projects.data.value?.[0]?.id || null
   const imgs = project.value?.imagesPending > 0
   if (currentId.value && all) {
-    await Promise.all([clips.run(), scenes.run(), tab.value === 'refs' || imgs ? refs.run() : Promise.resolve()])
+    await Promise.all([clips.run(), scenes.run(), specs.run(), tab.value === 'refs' || imgs ? refs.run() : Promise.resolve()])
   }
 }
 async function tick() {
@@ -264,6 +307,7 @@ watch(currentId, () => {
   if (currentId.value) {
     clips.run()
     refs.run()
+    specs.run()
   }
 })
 watch(project, (p, old) => {
@@ -874,6 +918,7 @@ function downloadZip(what) {
                       <el-option v-for="m in api888Models" :key="m.id" :label="m.id" :value="m.id">
                         <span>{{ m.id }}</span>
                         <span class="hint ml-2">{{ m.durations ? m.durations.join('/') : m.min + '–' + m.max }}s · {{ m.resolution }} · ≤{{ m.maxImages }} ảnh · {{ m.note }}</span>
+                        <span class="ml-2 text-xs font-medium text-emerald-600">{{ fitLabel('API888', m.id) }}</span>
                       </el-option>
                     </el-select>
                   </div>
@@ -884,6 +929,7 @@ function downloadZip(what) {
                     <el-select v-model="settings.botsdModel" class="w-full">
                       <el-option v-for="m in BOTSD_MODELS" :key="m.id" :label="m.name" :value="m.id">
                         <span>{{ m.name }}</span><span class="hint ml-2">{{ m.hint }}</span>
+                        <span class="ml-2 text-xs font-medium text-emerald-600">{{ fitLabel('BOTSD', m.id) }}</span>
                       </el-option>
                     </el-select>
                   </div>
@@ -917,6 +963,14 @@ function downloadZip(what) {
               <p class="mb-4 text-xs text-slate-600 dark:text-zinc-300">
                 {{ durationRule }}<template v-if="balance"> · <b class="text-emerald-600 dark:text-emerald-400">{{ balance }}</b></template>
               </p>
+              <div v-if="draftFit.total" class="mb-4 rounded-lg px-3 py-2 text-xs ring-1 ring-inset"
+                :class="draftFit.ok === draftFit.total ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30' : 'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30'">
+                <b>Theo {{ draftSpec.label }}</b><template v-if="specUnsaved"> (đang xem thử – bấm <b>Lưu cấu hình</b> để áp dụng)</template>:
+                vừa {{ draftFit.ok }}/{{ draftFit.total }} clip chưa xong<template v-if="draftFit.ok === draftFit.total"> ✓</template>
+                <span v-if="draftFit.cut.length" class="ml-2" :title="codesHint(draftFit.cut)">· {{ draftFit.cut.length }} clip dài hơn mức tối đa sẽ bị cắt</span>
+                <span v-if="draftFit.images.length" class="ml-2" :title="codesHint(draftFit.images)">· {{ draftFit.images.length }} clip quá {{ draftSpec.maxImages }} ảnh</span>
+                <span v-if="draftFit.prompt.length" class="ml-2" :title="codesHint(draftFit.prompt)">· {{ draftFit.prompt.length }} prompt quá {{ draftSpec.promptMax.toLocaleString() }} ký tự</span>
+              </div>
               <p v-if="settings.provider === 'BOTSD'" class="hint mb-4">
                 BOTSD: ảnh tham chiếu gửi thẳng từ máy (không cần Virtual Portrait), tính bằng Point BOTSD (đăng nhập ở Cài đặt › BOTSD).
                 Thời lượng clip làm tròn lên 5 / 10 / 15 / 30s. BOTSD không có lệnh huỷ – dừng clip chỉ ngừng theo dõi, Point đã trừ.
@@ -926,7 +980,9 @@ function downloadZip(what) {
                 <div v-if="!providerRaw" class="sm:col-span-2">
                   <label class="field-label">Model</label>
                   <el-select v-model="settings.model" class="w-full">
-                    <el-option v-for="m in omniModels" :key="m.id" :label="m.name" :value="m.id" />
+                    <el-option v-for="m in omniModels" :key="m.id" :label="m.name" :value="m.id">
+                      <span>{{ m.name }}</span><span class="ml-2 text-xs font-medium text-emerald-600">{{ fitLabel('BYTEPLUS', m.id) }}</span>
+                    </el-option>
                   </el-select>
                 </div>
                 <div v-if="!providerRaw">
@@ -1029,6 +1085,14 @@ function downloadZip(what) {
               <span class="hint w-full">Tick ô đầu dòng (chọn được qua nhiều trang) hoặc chọn cảnh rồi bấm chạy – chỉ những clip đó được gửi, các clip khác giữ nguyên. “Chạy tất cả clip” ở trên mới chạy cả kịch bản.</span>
             </div>
 
+            <div v-if="draftFit.total" class="mb-3 rounded-lg px-3 py-2 text-xs ring-1 ring-inset"
+                :class="draftFit.ok === draftFit.total ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30' : 'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30'">
+                <b>Theo {{ draftSpec.label }}</b><template v-if="specUnsaved"> (đang xem thử – bấm <b>Lưu cấu hình</b> để áp dụng)</template>:
+                vừa {{ draftFit.ok }}/{{ draftFit.total }} clip chưa xong<template v-if="draftFit.ok === draftFit.total"> ✓</template>
+                <span v-if="draftFit.cut.length" class="ml-2" :title="codesHint(draftFit.cut)">· {{ draftFit.cut.length }} clip dài hơn mức tối đa sẽ bị cắt</span>
+                <span v-if="draftFit.images.length" class="ml-2" :title="codesHint(draftFit.images)">· {{ draftFit.images.length }} clip quá {{ draftSpec.maxImages }} ảnh</span>
+                <span v-if="draftFit.prompt.length" class="ml-2" :title="codesHint(draftFit.prompt)">· {{ draftFit.prompt.length }} prompt quá {{ draftSpec.promptMax.toLocaleString() }} ký tự</span>
+              </div>
             <div class="mb-3 flex flex-wrap items-center gap-3">
               <el-input v-model="query.q" placeholder="Tìm theo mã, cảnh, mã ảnh, nội dung prompt…" clearable class="max-w-md" @keyup.enter="search" @clear="search">
                 <template #prefix><el-icon><Search /></el-icon></template>
@@ -1063,7 +1127,7 @@ function downloadZip(what) {
                           <el-input v-if="drafts[row.id]" v-model="drafts[row.id].prompt" type="textarea" :autosize="{ minRows: 8, maxRows: 22 }" class="font-mono" />
                           <div v-if="drafts[row.id] && projPromptMax" class="mt-1 text-right text-xs"
                             :class="drafts[row.id].prompt.length > projPromptMax ? 'font-semibold text-rose-600' : 'text-slate-400'">
-                            {{ drafts[row.id].prompt.length.toLocaleString() }} / {{ projPromptMax.toLocaleString() }} ký tự ({{ PROVIDER_LABEL[prov] }})
+                            {{ drafts[row.id].prompt.length.toLocaleString() }} / {{ projPromptMax.toLocaleString() }} ký tự ({{ draftSpec.label }})
                           </div>
                         </div>
                         <div class="flex flex-wrap items-center gap-3">
@@ -1126,6 +1190,13 @@ function downloadZip(what) {
                   <template #default="{ row }">
                     <div class="text-sm">{{ row.sceneTitle }}</div>
                     <div class="text-xs text-slate-400">{{ row.timecode }} · {{ row.duration }}s</div>
+                    <template v-if="row.status !== 'SUCCEEDED' && row.duration">
+                      <div v-if="sentSeconds(row.duration) < row.duration" class="mt-0.5 text-[11px] font-medium text-rose-600"
+                        :title="`${draftSpec.label} không nhận ${row.duration}s – video chỉ dài ${sentSeconds(row.duration)}s, mất ${row.duration - sentSeconds(row.duration)}s cuối`">
+                        gửi {{ sentSeconds(row.duration) }}s – bị cắt {{ row.duration - sentSeconds(row.duration) }}s
+                      </div>
+                      <div v-else-if="sentSeconds(row.duration) > row.duration" class="mt-0.5 text-[11px] text-slate-400">gửi {{ sentSeconds(row.duration) }}s (làm tròn lên)</div>
+                    </template>
                   </template>
                 </el-table-column>
                 <el-table-column label="Ảnh tham chiếu (theo thứ tự)" min-width="300">
@@ -1140,7 +1211,7 @@ function downloadZip(what) {
                       >{{ i + 1 }}·{{ c }}</span>
                     </div>
                     <div v-if="projMaxImages && row.refCodes.length > projMaxImages" class="mt-1 text-[11px] font-medium text-rose-600">
-                      {{ row.refCodes.length }} ảnh > tối đa {{ projMaxImages }} của model {{ PROVIDER_LABEL[prov] }} – đổi model hoặc bớt ảnh
+                      {{ row.refCodes.length }} ảnh > tối đa {{ projMaxImages }} của {{ draftSpec.label }} – đổi model hoặc bớt ảnh
                     </div>
                   </template>
                 </el-table-column>
