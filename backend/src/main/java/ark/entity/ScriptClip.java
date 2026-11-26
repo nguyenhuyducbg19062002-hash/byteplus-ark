@@ -118,7 +118,14 @@ public class ScriptClip {
         return refCodes == null || refCodes.isBlank() ? List.of() : Arrays.asList(refCodes.split(","));
     }
 
+    /**
+     * Cảnh báo về dữ liệu (lấy từ Excel, không phụ thuộc model). Cảnh báo "N ảnh tham chiếu > tối đa …" do bản cũ lưu cứng
+     * theo model lúc nhập bị bỏ qua: giới hạn của model giờ được tính theo model đang chọn trên màn hình.
+     */
     public List<String> warningList() {
-        return warnings == null || warnings.isBlank() ? List.of() : Arrays.asList(warnings.split("\n"));
+        if (warnings == null || warnings.isBlank()) return List.of();
+        return Arrays.stream(warnings.split("\n")).filter(w -> !w.isBlank() && !MODEL_LIMIT.matcher(w).find()).toList();
     }
+
+    private static final java.util.regex.Pattern MODEL_LIMIT = java.util.regex.Pattern.compile("^\\d+ ảnh tham chiếu > tối đa ");
 }

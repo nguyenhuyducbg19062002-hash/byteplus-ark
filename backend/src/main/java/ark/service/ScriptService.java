@@ -367,12 +367,26 @@ public class ScriptService {
             m.put("images", c.refList().size());
             m.put("promptLen", c.getPrompt() == null ? 0 : c.getPrompt().length());
             m.put("status", c.getStatus().name());
+            m.put("dataWarnings", c.warningList().size());
             out.add(m);
         }
         return out;
     }
 
+    /** Giới hạn của model đang chọn trên màn hình (null = không kiểm): số ảnh, số giây tối đa nhận được, số ký tự prompt. */
+    public record Limits(Integer images, Integer seconds, Integer prompt) {
+        boolean exceeds(ScriptClip c) {
+            if (c.getStatus() == ScriptClip.Status.SUCCEEDED) return false;
+            return (images != null && c.refList().size() > images) || (seconds != null && c.getDuration() > seconds)
+                    || (prompt != null && c.getPrompt() != null && c.getPrompt().length() > prompt);
+        }
+    }
+
     public PageResponse<ScriptClipDto> clips(Long id, String status, String q, int page, int size) {
+        return clips(id, status, q, page, size, null);
+    }
+
+    public PageResponse<ScriptClipDto> clips(Long id, String status, String q, int page, int size, Limits lim) {
         Map<String, ScriptReference> refs = refMap(id);
         ScriptRunner.RefCheck check = runner.refCheck(refs);
         List<ScriptClip> all = clips.findByProjectIdOrderBySeq(id);
@@ -386,8 +400,8 @@ public class ScriptService {
                     case "READY" -> { // Sẵn sàng: chờ chạy và đủ ảnh
                         if (c.getStatus() != ScriptClip.Status.PENDING || !check.missing(c).isEmpty()) return false;
                     }
-                    case "WARNING" -> {
-                        if (c.getWarnings() == null) return false;
+                    case "WARNING" -> { // lỗi dữ liệu, hoặc vượt giới hạn của model đang chọn (màn hình gửi kèm)
+                        if (c.warningList().isEmpty() && !(lim != null && lim.exceeds(c))) return false;
                     }
                     default -> {
                         if (!c.getStatus().name().equalsIgnoreCase(status)) return false;
@@ -755,7 +769,7 @@ public class ScriptService {
         for (ScriptClip c : all) {
             counts.merge(c.getStatus().name(), 1L, Long::sum);
             if (c.getStatus() == ScriptClip.Status.PENDING && !check.missing(c).isEmpty()) blocked++;
-            if (c.getWarnings() != null) warn++;
+            if (!c.warningList().isEmpty()) warn++;
         }
         Set<String> usedCodes = all.stream().flatMap(c -> c.refList().stream()).collect(Collectors.toSet());
         // Thiếu ảnh = chưa có ảnh dùng được và cũng không đang tạo / chờ duyệt

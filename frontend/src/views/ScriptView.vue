@@ -37,7 +37,7 @@ const query = reactive({ page: 1, size: 20, q: '' })
 const clips = useAsync(
   () =>
     api.get(`/script-projects/${currentId.value}/clips`, {
-      params: { page: query.page, size: query.size, status: filter.value || undefined, q: query.q || undefined },
+      params: { page: query.page, size: query.size, status: filter.value || undefined, q: query.q || undefined, ...limitParams() },
       silent: true
     }),
   { initial: { items: [], total: 0 } }
@@ -143,6 +143,8 @@ function specOf(provider, id) {
   }
   if (provider === 'API888') {
     const m = api888Models.value.find((x) => x.id === id)
+    // Chưa tải xong danh sách model → chưa biết giới hạn, không báo gì (tránh báo nhầm theo mức mặc định)
+    if (!m && !api888Models.value.length) return { label: '888API · ' + id, maxImages: null, durations: null, min: null, max: null, promptMax: null }
     return { label: '888API · ' + id, maxImages: m?.maxImages || 9, durations: m?.durations || null, min: m?.min ?? 4, max: m?.max ?? 15,
       promptMax: m?.promptMax || null }
   }
@@ -183,6 +185,32 @@ function fitOf(sp) {
   return r
 }
 const draftFit = computed(() => fitOf(draftSpec.value))
+/** Số giây tối đa model đang chọn nhận được (dài hơn là bị cắt). */
+const maxSeconds = (sp) => (sp.durations ? sp.durations[sp.durations.length - 1] : sp.max)
+/** Giới hạn gửi kèm khi lấy danh sách clip: bộ lọc "Cảnh báo" tính theo model đang chọn. */
+function limitParams() {
+  const sp = draftSpec.value
+  return { limImages: sp.maxImages ?? undefined, limSeconds: maxSeconds(sp) ?? undefined, limPrompt: sp.promptMax ?? undefined }
+}
+/** Cảnh báo của một clip = lỗi dữ liệu (từ Excel) + vượt giới hạn của model đang chọn (tính ngay, không lưu). */
+function rowWarnings(row) {
+  const sp = draftSpec.value
+  const out = [...(row.warnings || [])]
+  if (row.status === 'SUCCEEDED') return out
+  const n = row.refCodes?.length || 0
+  if (sp.maxImages && n > sp.maxImages) out.push(`${n} ảnh tham chiếu > tối đa ${sp.maxImages} của ${sp.label}`)
+  if (row.duration && sentSeconds(row.duration) < row.duration) out.push(`${row.duration}s > tối đa ${sentSeconds(row.duration)}s của ${sp.label} – video bị cắt ${row.duration - sentSeconds(row.duration)}s`)
+  if (sp.promptMax && row.prompt?.length > sp.promptMax) out.push(`Prompt ${row.prompt.length.toLocaleString()} ký tự > tối đa ${sp.promptMax.toLocaleString()} của ${sp.label}`)
+  return out
+}
+/** Số clip có cảnh báo theo model đang chọn (ô "Cảnh báo"). */
+const warningCount = computed(() => {
+  const sp = draftSpec.value
+  return (specs.data.value || []).filter((c) => c.dataWarnings > 0 || (c.status !== 'SUCCEEDED'
+    && ((sp.maxImages && c.images > sp.maxImages) || sentSeconds(c.duration, sp) < c.duration || (sp.promptMax && c.promptLen > sp.promptMax)))).length
+})
+// Đổi model khi đang lọc "Cảnh báo" → lấy lại danh sách theo model mới
+watch(() => JSON.stringify(limitParams()), () => filter.value === 'WARNING' && currentId.value && clips.run())
 /** "vừa 60/68" cho từng model trong danh sách chọn. */
 const fitLabel = (provider, id) => {
   if (!specs.data.value?.length) return ''
@@ -314,7 +342,8 @@ const tiles = computed(() => {
     { key: 'SUCCEEDED', label: 'Xong', value: c.SUCCEEDED, tone: 'text-emerald-600 dark:text-emerald-400' },
     { key: 'FAILED', label: 'Lỗi', value: c.FAILED, tone: 'text-rose-600 dark:text-rose-400' },
     { key: 'CANCELLED', label: 'Đã huỷ', value: c.CANCELLED, tone: 'text-slate-500', hideZero: true },
-    { key: 'WARNING', label: 'Cảnh báo', value: p?.warningClips, tone: 'text-indigo-600 dark:text-indigo-400', hideZero: true }
+    { key: 'WARNING', label: 'Cảnh báo', value: specs.data.value?.length ? warningCount.value : p?.warningClips, tone: 'text-indigo-600 dark:text-indigo-400',
+      title: 'Lỗi dữ liệu trong Excel + clip vượt giới hạn của model đang chọn', hideZero: !(filter.value === 'WARNING') }
   ].filter((t) => !t.hideZero || t.value)
 })
 const refTiles = computed(() => {
@@ -1249,8 +1278,8 @@ function downloadZip(what) {
                             <template v-else>Thông báo của máy chủ ở cột Tiến độ / lỗi. Muốn AI phân tích vì sao bị chặn cần API key BytePlus.</template>
                           </p>
                         </div>
-                        <ul v-if="row.warnings.length" class="space-y-1 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-                          <li v-for="w in row.warnings" :key="w">• {{ w }}</li>
+                        <ul v-if="rowWarnings(row).length" class="space-y-1 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                          <li v-for="w in rowWarnings(row)" :key="w">• {{ w }}</li>
                         </ul>
                         <details v-if="row.promptVi" class="text-sm">
                           <summary class="cursor-pointer text-slate-500">Prompt tiếng Việt (để đọc kiểm tra)</summary>
@@ -1310,7 +1339,7 @@ function downloadZip(what) {
                       gửi qua {{ taskSource(row.taskId) }}
                     </div>
                     <div v-if="row.runSelected && (row.status === 'PENDING' || row.status === 'GENERATING')" class="mt-1 text-[11px] font-medium text-indigo-500">● trong lượt chạy riêng</div>
-                    <el-icon v-if="row.warnings.length" class="ml-1 text-indigo-500" :title="row.warnings.join('\n')"><WarningFilled /></el-icon>
+                    <el-icon v-if="rowWarnings(row).length" class="ml-1 text-indigo-500" :title="rowWarnings(row).join('\n')"><WarningFilled /></el-icon>
                   </template>
                 </el-table-column>
                 <el-table-column label="Tiến độ / lỗi" min-width="240" show-overflow-tooltip>

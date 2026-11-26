@@ -193,9 +193,14 @@ public class ScriptProjectController {
                                              @RequestParam(required = false) String status,
                                              @RequestParam(required = false) String q,
                                              @RequestParam(defaultValue = "1") @Min(1) int page,
-                                             @RequestParam(defaultValue = "20") @Min(1) @Max(200) int size) {
+                                             @RequestParam(defaultValue = "20") @Min(1) @Max(200) int size,
+                                             @RequestParam(required = false) Integer limImages,
+                                             @RequestParam(required = false) Integer limSeconds,
+                                             @RequestParam(required = false) Integer limPrompt) {
         service.project(id);
-        return service.clips(id, status, q, page, size);
+        ScriptService.Limits lim = limImages == null && limSeconds == null && limPrompt == null ? null
+                : new ScriptService.Limits(limImages, limSeconds, limPrompt);
+        return service.clips(id, status, q, page, size, lim);
     }
 
     @GetMapping("/script-projects/{id}/references")

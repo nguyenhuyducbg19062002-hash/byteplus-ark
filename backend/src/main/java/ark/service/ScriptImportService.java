@@ -240,12 +240,7 @@ public class ScriptImportService {
         }
         if (!parsed.isEmpty()) project.setSourceFile(cut(fileName, 300));
         project = projects.save(project);
-        Models.VideoModel model = Models.video(project.getModel());
-        for (ParsedClip c : parsed) {
-            if (c.refs().size() > model.maxRefImages()) {
-                c.warnings().add(c.refs().size() + " ảnh tham chiếu > tối đa " + model.maxRefImages() + " của " + model.name());
-            }
-        }
+        // Giới hạn số ảnh / thời lượng của model không lưu thành cảnh báo: màn hình tính theo model đang chọn
 
         // Tên nhân vật để thay mã trong mô tả, và ảnh gốc (bộ đầu) của mỗi nhân vật để giữ khuôn mặt
         Map<String, String> names = new LinkedHashMap<>();
