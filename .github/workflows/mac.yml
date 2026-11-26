@@ -4,6 +4,8 @@ name: Mac build
 on:
   push:
     tags: ['v*']
+    branches: [main]
+    paths: ['packaging/mac/**', '.github/workflows/mac.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -41,7 +43,7 @@ jobs:
           name: ArkStudio-mac-${{ matrix.arch }}
           path: build-mac/*.dmg
       - name: Đính vào Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.v }}
           files: build-mac/*.dmg
