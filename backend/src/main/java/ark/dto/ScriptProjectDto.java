@@ -18,4 +18,6 @@ public record ScriptProjectDto(Long id, String name, String sourceFile, String f
                                boolean onlySelected, int selectedPending,
                                /** Nguồn tạo video BYTEPLUS / BOTSD và cấu hình BOTSD. */
                                String provider, String botsdModel, String botsdResolution, String botsdRealPerson,
-                               String api888Model) {}
+                               String api888Model,
+                               /** Dự án theo thư mục: đường dẫn + file Excel đang dùng (null = dự án nhập Excel kiểu cũ). */
+                               String rootDir, String sceneFile, String refFile, String voiceFile, java.time.Instant lastOpenedAt) {}

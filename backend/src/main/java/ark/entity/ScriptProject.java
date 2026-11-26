@@ -118,6 +118,28 @@ public class ScriptProject {
         return isBotsd() || isApi888();
     }
 
+    /**
+     * Dự án theo thư mục: đường dẫn thư mục dự án (vd ...\KET QUA - IDE 21). App đọc Excel ngay trong thư mục, không cần nhập.
+     * null = dự án nhập Excel kiểu cũ.
+     */
+    @Column(length = 1000)
+    private String rootDir;
+
+    /** File Excel đã chọn trong thư mục dự án (tên file, tương đối với rootDir): cảnh / ảnh tham chiếu / thoại. */
+    @Column(length = 300)
+    private String sceneFile;
+    @Column(length = 300)
+    private String refFile;
+    @Column(length = 300)
+    private String voiceFile;
+
+    /** Lần mở / quét gần nhất (danh sách dự án gần đây). */
+    private java.time.Instant lastOpenedAt;
+
+    public boolean isFolderProject() {
+        return rootDir != null && !rootDir.isBlank();
+    }
+
     /** Asset group Virtual Portrait riêng của dự án (app tự tạo khi đẩy ảnh lần đầu). null = chưa có. */
     @Column(length = 80)
     private String vpGroupId;

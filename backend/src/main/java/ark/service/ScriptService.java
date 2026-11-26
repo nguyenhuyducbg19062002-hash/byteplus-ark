@@ -122,7 +122,9 @@ public class ScriptService {
             size = im.defaultSize();
         }
         p.setImageSize(size);
-        return toDto(projects.save(p));
+        ScriptProject saved = projects.save(p);
+        ProjectArkDir.saveQuietly(saved); // dự án theo thư mục: giữ cài đặt trong <dự án>/.ark/project.json
+        return toDto(saved);
     }
 
     @Transactional
@@ -756,6 +758,8 @@ public class ScriptService {
                 .onlySelected(p.isOnlySelected())
                 .provider(p.getProvider()).botsdModel(p.getBotsdModel()).botsdResolution(p.getBotsdResolution())
                 .botsdRealPerson(p.getBotsdRealPerson()).api888Model(p.getApi888Model())
+                .rootDir(p.getRootDir()).sceneFile(p.getSceneFile()).refFile(p.getRefFile()).voiceFile(p.getVoiceFile())
+                .lastOpenedAt(p.getLastOpenedAt())
                 .selectedPending((int) all.stream().filter(c -> c.isRunSelected() && (c.getStatus() == ScriptClip.Status.PENDING
                         || c.getStatus() == ScriptClip.Status.GENERATING)).count())
                 .build();

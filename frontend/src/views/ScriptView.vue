@@ -10,6 +10,7 @@ import AsyncState from '../components/AsyncState.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import LibraryPicker from '../components/LibraryPicker.vue'
 import RefFolderImport from '../components/RefFolderImport.vue'
+import ProjectFolderDialog from '../components/ProjectFolderDialog.vue'
 
 /**
  * Kịch bản Seedance chạy hàng loạt (luồng như Flow Batch Studio):
@@ -408,6 +409,43 @@ async function saveSettings() {
   }
 }
 
+// ---------- dự án theo thư mục ----------
+const folderDialog = ref(false)
+/** Kết quả quét thư mục của dự án đang mở (số ảnh / video đã có trong thư mục). */
+const folderScan = ref(null)
+async function loadFolderScan() {
+  folderScan.value = null
+  if (!project.value?.rootDir) return
+  try {
+    folderScan.value = await api.get(`/script-projects/${currentId.value}/folder`, { silent: true, timeout: 120000 })
+  } catch {
+    folderScan.value = null
+  }
+}
+watch(() => project.value?.id + '|' + (project.value?.rootDir || ''), loadFolderScan)
+async function onFolderOpened(r) {
+  importResult.value = r.imported
+  currentId.value = r.project.id
+  folderScan.value = r.scan
+  await refresh()
+  refs.run()
+}
+async function rescan() {
+  busy.value = 'rescan'
+  try {
+    const r = await api.post(`/script-projects/${currentId.value}/rescan`, null, { timeout: 300000 })
+    importResult.value = r.imported
+    folderScan.value = r.scan
+    const i = r.imported
+    ElMessage.success(`Đã quét lại: ${i.created + i.updated + i.unchanged} cảnh (${i.created} mới, ${i.updated} cập nhật)`)
+    await refresh()
+    refs.run()
+  } finally {
+    busy.value = ''
+  }
+}
+const openInExplorer = (p) => api.post('/system/open-folder', { path: p })
+
 async function removeProject() {
   await ElMessageBox.confirm(`Xoá dự án "${project.value.name}"? Video đã tạo vẫn giữ trong thư viện.`, 'Xoá dự án', { type: 'warning' })
   let deleteImages = false
@@ -649,35 +687,73 @@ function downloadZip(what) {
 
 <template>
   <div class="mx-auto max-w-[1500px] p-6 lg:p-8">
-    <PageHeader title="Kịch bản hàng loạt" subtitle="Nhập Excel kịch bản Seedance → gán ảnh tham chiếu → tự động gửi từng clip" icon="Film" />
+    <PageHeader title="Kịch bản hàng loạt" subtitle="Mở thư mục dự án → app đọc Excel trong thư mục → gán / tạo ảnh tham chiếu → tự động gửi từng clip" icon="Film" />
 
     <!-- chọn / nhập dự án -->
     <section class="card mb-6 flex flex-wrap items-center gap-3 p-4">
       <el-select v-model="currentId" placeholder="Chọn dự án kịch bản" class="w-80" :disabled="!projects.data.value?.length">
         <el-option v-for="p in projects.data.value" :key="p.id" :label="p.name" :value="p.id">
           <div class="flex items-center justify-between gap-4">
-            <span>{{ p.name }}</span>
-            <span class="text-xs text-slate-400">{{ p.counts?.SUCCEEDED || 0 }}/{{ p.counts?.TOTAL || 0 }}</span>
+            <span class="truncate">{{ p.name }}</span>
+            <span class="shrink-0 text-xs text-slate-400">
+              <el-tag size="small" :type="p.rootDir ? 'success' : 'info'" effect="plain" class="mr-1">{{ p.rootDir ? 'Thư mục' : 'Excel' }}</el-tag>
+              {{ p.counts?.SUCCEEDED || 0 }}/{{ p.counts?.TOTAL || 0 }}
+            </span>
           </div>
         </el-option>
       </el-select>
       <input ref="excelInput" type="file" multiple accept=".xlsx" class="hidden" @change="onExcelPicked" />
       <input ref="resultFolderInput" type="file" webkitdirectory directory multiple class="hidden" @change="(e) => onResultFolderPicked(e, false)" />
-      <el-tooltip content="Chọn được nhiều file cùng lúc, vd all-video-prompts.xlsx + reference-prompts.xlsx + voice-overlay.xlsx" placement="bottom">
-        <el-button type="primary" :loading="importing" @click="pickExcel(false)"><el-icon><Upload /></el-icon>&nbsp;Nhập Excel mới</el-button>
+      <el-tooltip content="Chọn thư mục dự án (vd KET QUA - IDE 21): app tự đọc các file Excel trong thư mục, không cần nhập file" placement="bottom">
+        <el-button type="primary" @click="folderDialog = true"><el-icon><FolderOpened /></el-icon>&nbsp;Mở thư mục dự án</el-button>
       </el-tooltip>
-      <el-tooltip content="Chọn cả thư mục kết quả (vd KET QUA - IDE 21): nhập mọi file Excel rồi ghép luôn ảnh trong “Ảnh tham chiếu”" placement="bottom">
-        <el-button type="success" plain :loading="importing" @click="resultFolderInput.click()"><el-icon><FolderOpened /></el-icon>&nbsp;Nhập thư mục kết quả</el-button>
-      </el-tooltip>
-      <el-button v-if="project" :loading="importing" :disabled="project.status === 'RUNNING'" @click="pickExcel(true)"><el-icon><RefreshRight /></el-icon>&nbsp;Nhập lại vào dự án này</el-button>
-      <span v-if="project" class="hint ml-auto">File: {{ project.sourceFile }} · tạo {{ formatTime(project.createdAt) }} · video lưu ở output/videos/{{ project.folder }}</span>
+      <template v-if="project?.rootDir">
+        <el-button :loading="busy === 'rescan'" :disabled="project.status === 'RUNNING'" :title="project.status === 'RUNNING' ? 'Tạm dừng dự án rồi mới quét lại' : 'Đọc lại Excel và đếm lại ảnh / video trong thư mục'" @click="rescan">
+          <el-icon><RefreshRight /></el-icon>&nbsp;Quét lại
+        </el-button>
+        <el-button @click="openInExplorer(project.rootDir)"><el-icon><Folder /></el-icon>&nbsp;Mở thư mục</el-button>
+      </template>
+      <el-dropdown trigger="click" @command="(c) => (c === 'excel' ? pickExcel(false) : c === 'folder' ? resultFolderInput.click() : pickExcel(true))">
+        <el-button plain :loading="importing">Nhập Excel (cách cũ)<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="excel">Nhập file Excel thành dự án mới</el-dropdown-item>
+            <el-dropdown-item command="folder">Tải cả thư mục kết quả lên (chép vào app)</el-dropdown-item>
+            <el-dropdown-item v-if="project && !project.rootDir" command="again" :disabled="project.status === 'RUNNING'">Nhập lại vào dự án này</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+      <span v-if="project && !project.rootDir" class="hint ml-auto">File: {{ project.sourceFile }} · tạo {{ formatTime(project.createdAt) }} · video lưu ở output/videos/{{ project.folder }}</span>
+    </section>
+
+    <!-- dự án theo thư mục: đường dẫn + những gì đã có trong thư mục -->
+    <section v-if="project?.rootDir" class="card -mt-3 mb-6 p-4 text-sm">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span class="font-medium">📁 {{ project.rootDir }}</span>
+        <span v-if="project.lastOpenedAt" class="hint">quét lúc {{ formatTime(project.lastOpenedAt) }}</span>
+      </div>
+      <div class="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600 dark:text-zinc-300">
+        <span>Cảnh: <b>{{ project.sceneFile }}</b> ({{ project.counts.TOTAL }} cảnh)</span>
+        <span v-if="project.refFile && project.refFile !== project.sceneFile">Prompt ảnh: <b>{{ project.refFile }}</b></span>
+        <span v-if="project.voiceFile">Thoại: <b>{{ project.voiceFile }}</b></span>
+        <template v-if="folderScan">
+          <span>Ảnh tham chiếu: <b>{{ folderScan.refDir ? folderScan.refDir.files + ' ảnh' : 'chưa có thư mục' }}</b></span>
+          <span>Chờ duyệt: <b>{{ folderScan.pendingDir ? folderScan.pendingDir.files + ' ảnh' : '0' }}</b></span>
+          <span>Video trong thư mục: <b>{{ folderScan.videoDir ? `${folderScan.videoDir.files} file · ${folderScan.videoDir.scenes} cảnh` : 'chưa có' }}</b></span>
+        </template>
+      </div>
+      <p v-for="p in folderScan?.problems || []" :key="p" class="mt-1 text-xs text-amber-600">⚠ {{ p }}</p>
+      <p class="hint mt-1">
+        Sửa Excel hoặc bỏ thêm file vào thư mục thì bấm <b>Quét lại</b>. Bản này mới đọc Excel và đếm ảnh / video; các bản sau sẽ tự dùng ảnh trong
+        <code>Ảnh tham chiếu/</code>, lưu ảnh / video mới vào thư mục dự án và bỏ qua cảnh đã có video.
+      </p>
     </section>
 
     <AsyncState
       :loading="projects.loading.value && !projects.data.value?.length"
       :error="projects.error.value"
       :empty="!projects.data.value?.length"
-      empty-text="Chưa có kịch bản nào. Bấm “Nhập Excel mới” và chọn file kịch bản (.xlsx) có sheet KỊCH BẢN, NHÂN VẬT, BỐI CẢNH, ĐẠO CỤ."
+      empty-text="Chưa có dự án nào. Bấm “Mở thư mục dự án” và chọn thư mục dự án (vd KET QUA - IDE 21) – app tự đọc các file Excel trong đó."
       empty-icon="Film"
       @retry="tick"
     >
@@ -1225,7 +1301,10 @@ function downloadZip(what) {
       </template>
     </el-dialog>
 
-    <RefFolderImport v-if="project" v-model="folderImport" :project-id="project.id" :references="refs.data.value" :initial-files="folderImportFiles" @done="refs.run(), refresh(false)" />
+    <ProjectFolderDialog v-model="folderDialog" @opened="onFolderOpened" />
+
+    <RefFolderImport v-if="project" v-model="folderImport"
+ :project-id="project.id" :references="refs.data.value" :initial-files="folderImportFiles" @done="refs.run(), refresh(false)" />
 
     <LibraryPicker :model-value="!!pickerFor" kind="image" :multiple="false" :project-id="project?.id" @update:model-value="(v) => !v && (pickerFor = null)" @pick="onPicked" />
   </div>

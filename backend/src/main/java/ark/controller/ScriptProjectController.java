@@ -42,6 +42,47 @@ import lombok.RequiredArgsConstructor;
 public class ScriptProjectController {
     private final ScriptService service;
     private final ScriptImportService importer;
+    private final ark.service.ProjectFolderService folders;
+
+    /** Dự án theo thư mục: quét thư mục (không nhập gì) – liệt kê file Excel theo loại, ảnh / video đã có, vấn đề cần xử lý. */
+    @PostMapping("/project-folders/scan")
+    public ark.service.ProjectFolderService.ScanReport scanFolder(@RequestBody java.util.Map<String, String> body) {
+        return folders.scan(body.get("path"), selection(body));
+    }
+
+    /** Mở thư mục dự án: đọc Excel trong thư mục (tạo dự án mới, hoặc cập nhật dự án đã mở thư mục này trước đó). */
+    @PostMapping("/project-folders/open")
+    public ark.service.ProjectFolderService.OpenResult openFolder(@RequestBody java.util.Map<String, String> body) throws IOException {
+        return folders.open(body.get("path"), selection(body));
+    }
+
+    /** Dự án theo thư mục đã mở, gần nhất trước. */
+    @GetMapping("/project-folders/recent")
+    public List<java.util.Map<String, Object>> recentFolders() {
+        return folders.recent();
+    }
+
+    /** Quét lại thư mục của dự án: đọc lại Excel, đếm lại ảnh / video. */
+    @PostMapping("/script-projects/{id}/rescan")
+    public ark.service.ProjectFolderService.OpenResult rescan(@PathVariable Long id) throws IOException {
+        return folders.rescan(id);
+    }
+
+    /** Kết quả quét thư mục hiện tại của dự án (không đọc lại Excel vào dự án). */
+    @GetMapping("/script-projects/{id}/folder")
+    public ark.service.ProjectFolderService.ScanReport folderOf(@PathVariable Long id) {
+        ark.dto.ScriptProjectDto p = service.get(id);
+        if (p.rootDir() == null) throw new IllegalArgumentException("Dự án này nhập từ Excel, không gắn thư mục");
+        return folders.scan(p.rootDir(), new ark.service.ProjectFolderService.Selection(p.sceneFile(), p.refFile(), p.voiceFile()));
+    }
+
+    private static ark.service.ProjectFolderService.Selection selection(java.util.Map<String, String> b) {
+        return new ark.service.ProjectFolderService.Selection(blank(b.get("sceneFile")), blank(b.get("refFile")), blank(b.get("voiceFile")));
+    }
+
+    private static String blank(String s) {
+        return s == null || s.isBlank() ? null : s;
+    }
 
     @GetMapping("/script-projects")
     public List<ScriptProjectDto> list() {

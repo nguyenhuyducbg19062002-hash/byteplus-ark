@@ -87,6 +87,42 @@ public class ScriptImportService {
     /** Một file Excel tải lên. */
     public record Source(InputStream in, String fileName) {}
 
+    /** Loại nội dung trong một file Excel (một file kịch bản kiểu cũ có cả cảnh lẫn mã ảnh). */
+    public enum FileKind { SCENES, REFERENCES, VOICE }
+
+    /** Đọc tiêu đề các sheet để biết file chứa gì (không nhập gì). Rỗng = không nhận ra. */
+    public static java.util.EnumSet<FileKind> classify(InputStream in) throws IOException {
+        java.util.EnumSet<FileKind> kinds = java.util.EnumSet.noneOf(FileKind.class);
+        try (Workbook wb = WorkbookFactory.create(in)) {
+            FormulaEvaluator eval = wb.getCreationHelper().createFormulaEvaluator();
+            DataFormatter fmt = new DataFormatter();
+            for (Sheet s : wb) {
+                if (headerWith(s, fmt, eval, h -> h.containsKey("REFERENCE IDS") || h.containsKey("STT SEGMENT")) >= 0) {
+                    kinds.add(FileKind.SCENES);
+                    continue;
+                }
+                if (headerWith(s, fmt, eval, h -> h.containsKey("REFERENCE ID")) >= 0) {
+                    kinds.add(FileKind.REFERENCES);
+                    continue;
+                }
+                if (headerWith(s, fmt, eval, h -> h.containsKey("ID SEGMENT")
+                        && h.keySet().stream().anyMatch(k -> k.contains("THOẠI"))) >= 0) {
+                    kinds.add(FileKind.VOICE);
+                    continue;
+                }
+                String n = upper(s.getSheetName());
+                if (n.contains("KỊCH BẢN") || n.contains("KICH BAN") || n.contains("SCRIPT")) kinds.add(FileKind.SCENES);
+                else if (n.contains("NHÂN VẬT") || n.contains("NHAN VAT") || n.contains("CHARACTER") || n.contains("BỐI CẢNH")
+                        || n.contains("BOI CANH") || n.contains("ĐẠO CỤ") || n.contains("DAO CU")) kinds.add(FileKind.REFERENCES);
+            }
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Không đọc được file Excel: " + e.getMessage(), e);
+        }
+        return kinds;
+    }
+
     @Transactional
     public ScriptImportResult importExcel(InputStream in, String fileName, Long projectId, String name) throws IOException {
         return importFiles(List.of(new Source(in, fileName)), projectId, name);
