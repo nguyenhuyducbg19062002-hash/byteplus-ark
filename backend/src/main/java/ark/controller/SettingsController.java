@@ -74,6 +74,12 @@ public class SettingsController {
     }
 
     /** Danh sách model 888API app biết (giới hạn thời lượng / tỉ lệ / số ảnh). */
+    /** Nơi để ảnh của 888API dùng được không (TOS: thử bucket thật). */
+    @GetMapping("/api888/image-host-check")
+    public java.util.Map<String, Object> api888ImageHostCheck(@org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean force) {
+        return api888.checkImageHost(force);
+    }
+
     @GetMapping("/api888/models")
     public java.util.List<ark.service.Api888Service.Model> api888Models() {
         return ark.service.Api888Service.MODELS;

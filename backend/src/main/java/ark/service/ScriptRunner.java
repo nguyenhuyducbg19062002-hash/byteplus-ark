@@ -781,7 +781,11 @@ public class ScriptRunner {
             try {
                 images.add(api888.imageUrl(f, project.getFolder(), msg -> say.accept(code + ": " + msg)));
             } catch (IllegalStateException e) {
-                throw new IllegalStateException("Không tạo được link ảnh " + code + " cho 888API: " + e.getMessage(), e);
+                String why = e.getMessage() == null ? "" : e.getMessage();
+                if (why.contains("TOS") && !why.contains("Litterbox")) {
+                    why += " – hoặc đổi “Nơi để ảnh” sang Litterbox ở Cài đặt › 888API (link công khai, tự xoá sau 72 giờ)";
+                }
+                throw new IllegalStateException("Không tạo được link ảnh " + code + " cho 888API: " + why, e);
             }
         }
         int seconds = Api888Service.seconds(m, clip.getDuration());

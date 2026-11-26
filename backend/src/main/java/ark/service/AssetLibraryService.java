@@ -220,6 +220,30 @@ public class AssetLibraryService {
         return e;
     }
 
+    /**
+     * Thử TOS ngay (kiểm tra / tạo bucket riêng tư, không tải ảnh nào): null = dùng được, còn lại là lý do bằng tiếng Việt.
+     * Lỗi được nhớ 15 phút như khi chạy thật.
+     */
+    public String probeTos(boolean fresh) {
+        if (!hasKeys()) return "Chưa nhập AK/SK BytePlus (Cài đặt) nên không tải được ảnh lên TOS";
+        if (fresh) tosError = null; // người dùng vừa bật TOS và bấm Kiểm tra lại
+        String known = tosUnavailable();
+        if (known != null) return known;
+        try {
+            ark.integration.byteplus.TosClient tos = ark.integration.byteplus.TosClient.of(config.accessKey(), config.secretKey(), config.tosRegion());
+            ensureBucket(tos, m -> { });
+            return null;
+        } catch (IOException e) {
+            String hint = tosHint(String.valueOf(e.getMessage()));
+            if (hint == null) return "Không kết nối được TOS: " + e.getMessage();
+            tosError = hint;
+            tosErrorAt = System.currentTimeMillis();
+            return hint;
+        } catch (Exception e) {
+            return e.getMessage();
+        }
+    }
+
     /** Đẩy được file này lên Virtual Portrait: đủ cấu hình VP và (URL gốc còn hạn hoặc TOS dùng được). */
     public boolean canPush(GeneratedFile f) {
         return vpReady() && (f.isSourceUrlValid() || tosUnavailable() == null);
@@ -227,7 +251,7 @@ public class AssetLibraryService {
 
     private static String tosHint(String raw) {
         if (raw.contains("AccountDisable") || raw.contains("does not open tos")) {
-            return "Tài khoản BytePlus chưa bật dịch vụ TOS (Object Storage) nên không đưa được ảnh trên máy lên Virtual Portrait. "
+            return "Tài khoản BytePlus chưa bật dịch vụ TOS (Object Storage) nên app không tải được ảnh trên máy lên TOS. "
                     + "Bật TOS tại console.byteplus.com → Object Storage (TOS) → Activate, rồi thử lại sau vài phút";
         }
         if (raw.contains("HTTP 403")) {
@@ -285,7 +309,7 @@ public class AssetLibraryService {
                 String suffix = Long.toString(System.currentTimeMillis(), 36) + Integer.toString((int) (Math.random() * 1296), 36);
                 b = "ark-studio-" + suffix.toLowerCase(java.util.Locale.ROOT);
             }
-            log.accept("Tạo bucket TOS riêng tư " + b + " (" + config.tosRegion() + ") để đưa ảnh lên Virtual Portrait…");
+            log.accept("Tạo bucket TOS riêng tư " + b + " (" + config.tosRegion() + ") để chứa ảnh tải lên…");
             tos.createBucket(b);
             config.setTosBucket(b);
             config.save();

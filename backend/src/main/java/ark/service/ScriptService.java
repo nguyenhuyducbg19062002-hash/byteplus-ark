@@ -192,6 +192,7 @@ public class ScriptService {
             String why = api888.notReady();
             if (why != null) throw new IllegalStateException(why);
             checkApi888(p);
+            api888.requireImageHost(); // TOS chưa bật → báo ngay, không chạy
         } else if (config.apiKey().isEmpty()) {
             throw new IllegalStateException("Chưa có API key – nhập trong trang Cài đặt trước khi chạy");
         }

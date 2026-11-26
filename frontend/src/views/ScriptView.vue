@@ -237,6 +237,28 @@ async function loadBalance(p) {
 }
 watch(() => settings.provider, (p) => loadBalance(p))
 /** 888API cần chỗ để link ảnh: TOS (AK/SK) hoặc Litterbox. */
+/** 888API: nơi để ảnh (TOS / Litterbox) có dùng được không – kiểm tra thật trước khi chạy. */
+const hostCheck = ref(null)
+async function checkImageHost(force = false) {
+  try {
+    hostCheck.value = await api.get('/settings/api888/image-host-check', { params: { force }, silent: true, timeout: 60000 })
+  } catch {
+    hostCheck.value = null
+  }
+}
+const needHostCheck = computed(() => settings.provider === 'API888' || prov.value === 'API888')
+watch(needHostCheck, (v) => (v ? checkImageHost() : (hostCheck.value = null)), { immediate: true })
+async function useLitterbox() {
+  busy.value = 'litterbox'
+  try {
+    await api.put('/settings/api888', { imageHost: 'LITTERBOX' })
+    await appSettings.load()
+    await checkImageHost()
+    ElMessage.success('Đã đổi nơi để ảnh 888API sang Litterbox – bấm Chạy lại')
+  } finally {
+    busy.value = ''
+  }
+}
 const api888HostNote = computed(() => {
   const s = appSettings.settings
   if (!s) return ''
@@ -387,6 +409,7 @@ async function tick() {
 onActivated(() => {
   models.ensure()
   if (!appSettings.settings) appSettings.load()
+  if (needHostCheck.value) checkImageHost() // vừa đổi nơi để ảnh / bật TOS ở trang khác
   tick()
 })
 onDeactivated(() => clearTimeout(timer))
@@ -992,7 +1015,15 @@ function downloadZip(what) {
 
         <!-- thông báo + cấu hình -->
         <section class="card mb-6 px-5 py-3">
-          <p v-if="project.pausedReason" class="text-sm" :class="project.status === 'DONE' ? 'text-emerald-600' : 'text-amber-600 dark:text-amber-400'">
+          <el-alert v-if="needHostCheck && hostCheck && !hostCheck.ok" type="error" :closable="false" show-icon class="mb-3"
+            title="888API chưa lấy được link ảnh – chạy bây giờ sẽ lỗi">
+            <div class="text-sm">{{ hostCheck.message }}</div>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <el-button size="small" type="primary" :loading="busy === 'litterbox'" @click="useLitterbox">Đổi sang Litterbox</el-button>
+              <el-button size="small" @click="checkImageHost(true)">Kiểm tra lại (đã bật TOS)</el-button>
+            </div>
+          </el-alert>
+          <p v-if="project.pausedReason && !(needHostCheck && hostCheck && !hostCheck.ok && project.pausedReason.includes('TOS'))" class="text-sm" :class="project.status === 'DONE' ? 'text-emerald-600' : 'text-amber-600 dark:text-amber-400'">
             {{ project.pausedReason }}
           </p>
           <p v-if="project.imagesPending" class="mt-1 text-sm text-indigo-600 dark:text-indigo-400">

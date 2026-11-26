@@ -197,6 +197,37 @@ public class Api888Service {
     }
 
     /** Lý do chưa chạy được 888API (null = sẵn sàng). */
+    /**
+     * Kiểm tra nơi để ảnh của 888API ngay bây giờ (TOS: thử bucket thật). ok=false kèm lý do + cách sửa.
+     */
+    public Map<String, Object> checkImageHost() {
+        return checkImageHost(false);
+    }
+
+    public Map<String, Object> checkImageHost(boolean fresh) {
+        String host = config.api888ImageHost();
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("host", host);
+        String why = null;
+        if ("TOS".equals(host)) {
+            String tos = assetLibrary.probeTos(fresh);
+            if (tos != null) why = "888API cần link ảnh mà " + lower(tos) + " – hoặc đổi “Nơi để ảnh” sang Litterbox ở Cài đặt › 888API (link công khai, tự xoá sau 72 giờ)";
+        }
+        out.put("ok", why == null);
+        if (why != null) out.put("message", why);
+        return out;
+    }
+
+    /** Chạy dự án 888API: báo lỗi nơi để ảnh trước khi gửi clip (không để tới lúc chạy rồi mới dừng dự án). */
+    public void requireImageHost() {
+        Map<String, Object> r = checkImageHost();
+        if (!Boolean.TRUE.equals(r.get("ok"))) throw new IllegalStateException(String.valueOf(r.get("message")));
+    }
+
+    private static String lower(String s) {
+        return s.isEmpty() ? s : Character.toLowerCase(s.charAt(0)) + s.substring(1);
+    }
+
     public String notReady() {
         if (!configured()) return "Chưa nhập API key 888API – vào Cài đặt › 888API";
         if ("TOS".equals(config.api888ImageHost())) {
@@ -204,7 +235,7 @@ public class Api888Service {
                 return "888API cần link ảnh: nhập AK/SK BytePlus (Cài đặt) để app tải ảnh lên TOS, hoặc chọn nơi để ảnh “Litterbox” trong Cài đặt › 888API";
             }
             String tos = assetLibrary.tosUnavailable();
-            if (tos != null) return tos + " – hoặc chọn nơi để ảnh “Litterbox” trong Cài đặt › 888API";
+            if (tos != null) return "888API cần link ảnh mà " + lower(tos) + " – hoặc đổi “Nơi để ảnh” sang Litterbox ở Cài đặt › 888API (link công khai, tự xoá sau 72 giờ)";
         }
         return null;
     }
