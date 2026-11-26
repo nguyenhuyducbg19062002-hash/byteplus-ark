@@ -41,8 +41,7 @@ step "jpackage → .dmg"
   --mac-package-identifier vn.arkstudio.app --mac-package-name "$APP" \
   --icon "$OUT/ark.icns" --runtime-image "$OUT/runtime" \
   --input "$OUT/app" --main-jar byteplus-ark-backend.jar \
-  --java-options '-Dark.desktop=true' --java-options '-Dfile.encoding=UTF-8' --java-options '-Xmx2g' \
-  --java-options '-Dapple.awt.application.name=Ark Studio'
+  --java-options '-Dark.desktop=true' --java-options '-Dfile.encoding=UTF-8' --java-options '-Xmx2g'
 DMG="$OUT/ArkStudio-$VER-mac-$ARCH.dmg"
 mv "$OUT/$APP-$VER.dmg" "$DMG"
 echo "Đã tạo: $DMG ($(du -h "$DMG" | cut -f1))"
