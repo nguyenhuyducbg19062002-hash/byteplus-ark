@@ -10,7 +10,9 @@ import lombok.Builder;
 @Builder
 public record GeneratedFileDto(Long id, String name, String path, MediaKind kind, String url, Long size,
                                Instant createdAt, String model, String prompt, String taskId,
-                               String assetId, String assetStatus, String assetError, boolean sourceUrlValid) {
+                               String assetId, String assetStatus, String assetError, boolean sourceUrlValid,
+                               /** Dự án sở hữu (null = không thuộc dự án nào). */
+                               Long projectId) {
     public static GeneratedFileDto from(GeneratedFile f, Long size) {
         return GeneratedFileDto.builder()
                 .id(f.getId())
@@ -27,6 +29,7 @@ public record GeneratedFileDto(Long id, String name, String path, MediaKind kind
                 .assetStatus(f.getAssetStatus())
                 .assetError(f.getAssetError())
                 .sourceUrlValid(f.isSourceUrlValid())
+                .projectId(f.getProjectId())
                 .build();
     }
 }

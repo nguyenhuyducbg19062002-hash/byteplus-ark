@@ -22,4 +22,16 @@ public interface GeneratedFileRepository extends JpaRepository<GeneratedFile, Lo
     List<GeneratedFile> findByIdIn(List<Long> ids);
 
     List<GeneratedFile> findByKindOrderByCreatedAtDesc(MediaKind kind);
+
+    List<GeneratedFile> findByKindAndProjectIdOrderByCreatedAtDesc(MediaKind kind, Long projectId);
+
+    List<GeneratedFile> findByProjectIdIsNull();
+
+    List<GeneratedFile> findByProjectId(Long projectId);
+
+    /** Lọc thư viện: all = mọi file; ngược lại pid = null → file không thuộc dự án nào, pid = id → file của dự án đó. */
+    @org.springframework.data.jpa.repository.Query("select f from GeneratedFile f where (:kind is null or f.kind = :kind) and "
+            + "(:all = true or (:pid is null and f.projectId is null) or f.projectId = :pid)")
+    Page<GeneratedFile> search(MediaKind kind, boolean all, Long pid, Pageable pageable);
+
 }

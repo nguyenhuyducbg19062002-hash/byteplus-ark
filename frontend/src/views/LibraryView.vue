@@ -10,9 +10,12 @@ import FileGrid from '../components/FileGrid.vue'
 
 /** Ảnh / video đã lưu (bảng generated_file + thư mục output). */
 const router = useRouter()
-const query = reactive({ kind: '', page: 1, size: 24 })
+const query = reactive({ kind: '', project: 'all', page: 1, size: 24 })
+// Lọc theo dự án kịch bản: mỗi dự án có thư viện ảnh riêng (trùng mã giữa các dự án vẫn là ảnh khác nhau)
+const projects = useAsync(() => api.get('/script-projects', { silent: true }), { initial: [] })
+const projectName = (id) => (projects.data.value || []).find((p) => p.id === id)?.name
 const files = useAsync(
-  () => api.get('/files', { params: { kind: query.kind || undefined, page: query.page, size: query.size }, silent: true }),
+  () => api.get('/files', { params: { kind: query.kind || undefined, project: query.project === 'all' ? undefined : query.project, page: query.page, size: query.size }, silent: true }),
   { initial: { items: [], total: 0 } }
 )
 
@@ -26,7 +29,10 @@ const selected = ref([])
 function download(onlySelected) {
   const params = new URLSearchParams()
   if (onlySelected) selected.value.forEach((id) => params.append('ids', id))
-  else if (query.kind) params.set('kind', query.kind)
+  else {
+    if (query.kind) params.set('kind', query.kind)
+    if (query.project !== 'all') params.set('project', query.project)
+  }
   const a = document.createElement('a')
   a.href = `/api/v1/files/download?${params}`
   a.click()
@@ -38,7 +44,10 @@ function selectPage() {
   selected.value = all ? selected.value.filter((id) => !ids.includes(id)) : [...new Set([...selected.value, ...ids])]
 }
 
-onActivated(() => files.run())
+onActivated(() => {
+  projects.run()
+  files.run()
+})
 </script>
 
 <template>
@@ -49,6 +58,11 @@ onActivated(() => files.run())
         <el-radio-button value="IMAGE">Ảnh</el-radio-button>
         <el-radio-button value="VIDEO">Video</el-radio-button>
       </el-radio-group>
+      <el-select v-model="query.project" class="!w-64" filterable @change="changeKind">
+        <el-option value="all" label="Mọi dự án" />
+        <el-option value="none" label="Không thuộc dự án nào" />
+        <el-option v-for="p in projects.data.value" :key="p.id" :value="String(p.id)" :label="'Dự án: ' + p.name" />
+      </el-select>
       <el-button :loading="files.loading.value" @click="files.run()"><el-icon><Refresh /></el-icon></el-button>
     </PageHeader>
 
@@ -74,7 +88,7 @@ onActivated(() => files.run())
       @retry="files.run()"
     >
       <div v-loading="files.loading.value">
-        <FileGrid v-model:selected="selected" :files="files.data.value.items" selectable deletable @changed="files.run()" @job="router.push('/jobs')" />
+        <FileGrid v-model:selected="selected" :files="files.data.value.items" :project-name="projectName" selectable deletable @changed="files.run()" @job="router.push('/jobs')" />
       </div>
       <div class="mt-6 flex items-center justify-between">
         <p class="hint">"Đẩy VP" chỉ dùng được khi URL gốc còn hạn (24h sau khi tạo).</p>

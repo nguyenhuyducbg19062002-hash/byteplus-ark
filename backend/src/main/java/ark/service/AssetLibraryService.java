@@ -34,6 +34,7 @@ public class AssetLibraryService {
     private final SettingsService settings;
     private final FileLibraryService fileLibrary;
     private final JobService jobs;
+    private final ark.repository.ScriptProjectRepository projects;
 
     private final Object bucketLock = new Object();
     private final java.util.concurrent.ConcurrentHashMap<Long, Object> fileLocks = new java.util.concurrent.ConcurrentHashMap<>();
@@ -85,6 +86,50 @@ public class AssetLibraryService {
         assetCache = assetCache.stream().filter(a -> !assetIds.contains(String.valueOf(a.get("Id")))).toList();
     }
 
+    /** Chỉ đọc cache (không gọi mạng), chỉ asset dự án được dùng ({@link #findAssetFor(List, String, ark.entity.ScriptProject)}). */
+    public Map<String, Object> cachedAssetFor(String code, ark.entity.ScriptProject project) {
+        cachedAssetFor(code);
+        return findAssetFor(assetCache, code, project);
+    }
+
+    /**
+     * Asset Active khớp mã mà dự án được dùng, theo thứ tự:
+     * <ol>
+     * <li>asset trong asset group riêng của dự án, tên trùng mã;</li>
+     * <li>asset tên "&lt;thư mục dự án&gt;__&lt;mã&gt;" (đẩy vào group chung khi không tạo được group riêng);</li>
+     * <li>asset không thuộc dự án nào khác (vd tự tải lên console, group tên = mã): không nằm trong group riêng của dự án khác,
+     * không mang tiền tố "&lt;thư mục&gt;__", không gắn với file thư viện của dự án khác.</li>
+     * </ol>
+     * Không bao giờ trả về asset của dự án khác – nhiều dự án trùng mã là ảnh khác nhau.
+     */
+    public Map<String, Object> findAssetFor(List<Map<String, Object>> assets, String code, ark.entity.ScriptProject project) {
+        if (project == null) return findAssetFor(assets, code);
+        String own = project.getVpGroupId();
+        if (own != null) {
+            for (Map<String, Object> a : assets) {
+                if (own.equals(Json.str(a, "GroupId")) && nameMatchesCode(Json.str(a, "Name"), code)) return a;
+            }
+        }
+        String prefixed = project.getFolder() + "__" + code;
+        for (Map<String, Object> a : assets) if (nameMatchesCode(Json.str(a, "Name"), prefixed)) return a;
+        java.util.Set<String> otherGroups = new java.util.HashSet<>();
+        for (ark.entity.ScriptProject o : projects.findAll()) {
+            if (!o.getId().equals(project.getId()) && o.getVpGroupId() != null) otherGroups.add(o.getVpGroupId());
+        }
+        java.util.function.Predicate<Map<String, Object>> free = a -> {
+            if (otherGroups.contains(Json.str(a, "GroupId"))) return false;
+            String n = Json.str(a, "Name");
+            if (n != null && n.contains("__")) return false;
+            for (GeneratedFile f : fileLibrary.byAssetId(Json.str(a, "Id"))) {
+                if (f.getProjectId() != null && !f.getProjectId().equals(project.getId())) return false;
+            }
+            return true;
+        };
+        for (Map<String, Object> a : assets) if (nameMatchesCode(Json.str(a, "Name"), code) && free.test(a)) return a;
+        for (Map<String, Object> a : assets) if (nameMatchesCode((String) a.get(GROUP_NAME), code) && free.test(a)) return a;
+        return null;
+    }
+
     /** Chỉ đọc cache (không gọi mạng) – dùng ở chỗ chạy thường xuyên như bộ điều phối clip. */
     public Map<String, Object> cachedAssetFor(String code) {
         if (System.currentTimeMillis() - assetCacheAt > 60_000 && hasKeys() && refreshing.compareAndSet(false, true)) {
@@ -127,9 +172,19 @@ public class AssetLibraryService {
      * dir/&lt;baseName&gt;_vp.&lt;đuôi&gt; (không ghi đè ảnh gốc cùng tên) và lưu asset ID.
      */
     public GeneratedFile fileForAsset(Map<String, Object> a, Path dir, String baseName) throws IOException, InterruptedException {
+        return fileForAsset(a, dir, baseName, null);
+    }
+
+    /** Như trên cho dự án projectId: chỉ dùng lại file của chính dự án (hoặc chưa thuộc dự án nào), file mới ghi thuộc dự án. */
+    public GeneratedFile fileForAsset(Map<String, Object> a, Path dir, String baseName, Long projectId) throws IOException, InterruptedException {
         String id = Json.str(a, "Id");
         for (GeneratedFile f : fileLibrary.byAssetId(id)) {
+            if (projectId != null && f.getProjectId() != null && !projectId.equals(f.getProjectId())) continue;
             if (java.nio.file.Files.isRegularFile(fileLibrary.pathOf(f))) {
+                if (projectId != null && f.getProjectId() == null) {
+                    f.setProjectId(projectId);
+                    f = fileLibrary.save(f);
+                }
                 if (!"Active".equals(f.getAssetStatus())) {
                     f.setAssetStatus("Active");
                     f.setAssetError(null);
@@ -143,7 +198,7 @@ public class AssetLibraryService {
         String p = URI.create(url).getPath();
         String ext = p != null && p.lastIndexOf('.') > p.lastIndexOf('/') ? p.substring(p.lastIndexOf('.')) : ".jpg";
         Path target = ArkClient.from(config).download(url, dir.resolve(baseName + "_vp" + ext));
-        GeneratedFile f = fileLibrary.record(new SavedOutput(target, null), null, Json.str(a, "Name"), null, null);
+        GeneratedFile f = fileLibrary.recordFor(projectId, new SavedOutput(target, null), null, Json.str(a, "Name"), null);
         f.setAssetId(id);
         f.setAssetStatus("Active");
         f.setAssetError(null);
@@ -244,6 +299,42 @@ public class AssetLibraryService {
      */
     public boolean ensureActiveAsset(GeneratedFile file, java.util.function.Consumer<String> log,
                                      java.util.function.BooleanSupplier cancelled) throws Exception {
+        return ensureActiveAsset(file, null, log, cancelled);
+    }
+
+    /** Không tạo được group riêng (vd giới hạn số group) → nhớ 1 giờ, dùng group chung + tên "&lt;thư mục&gt;__&lt;tên file&gt;". */
+    private volatile long groupCreateFailedAt;
+
+    /**
+     * Asset group Virtual Portrait riêng của dự án (tự tạo lần đầu, lưu vào dự án). null = dùng group chung trong Cài đặt.
+     */
+    public String projectGroup(ark.entity.ScriptProject project, java.util.function.Consumer<String> log) {
+        if (project == null) return null;
+        synchronized (bucketLock) {
+            ark.entity.ScriptProject fresh = projects.findById(project.getId()).orElse(project);
+            if (fresh.getVpGroupId() != null) return fresh.getVpGroupId();
+            if (System.currentTimeMillis() - groupCreateFailedAt < 3_600_000L) return null;
+            String name = (fresh.getName() + " (" + fresh.getFolder() + ")");
+            if (name.length() > 60) name = name.substring(0, 60);
+            try {
+                String id = api().createGroup(name, "Ark Studio – ảnh tham chiếu của dự án " + fresh.getName());
+                fresh.setVpGroupId(id);
+                projects.save(fresh);
+                project.setVpGroupId(id);
+                log.accept("Tạo asset group Virtual Portrait riêng cho dự án: " + name);
+                return id;
+            } catch (Exception e) {
+                groupCreateFailedAt = System.currentTimeMillis();
+                log.accept("Không tạo được asset group riêng (" + GlobalExceptionHandler.describe(e)
+                        + ") – dùng group chung, tên asset kèm thư mục dự án");
+                return null;
+            }
+        }
+    }
+
+    /** Đẩy file của dự án vào group riêng của dự án (hoặc group chung với tên "&lt;thư mục&gt;__&lt;tên file&gt;"). */
+    public boolean ensureActiveAsset(GeneratedFile file, ark.entity.ScriptProject project, java.util.function.Consumer<String> log,
+                                     java.util.function.BooleanSupplier cancelled) throws Exception {
         Object lock = fileLocks.computeIfAbsent(file.getId(), k -> new Object());
         synchronized (lock) {
             GeneratedFile f = fileLibrary.get(file.getId());
@@ -258,7 +349,10 @@ public class AssetLibraryService {
                 }
                 return "Active".equals(f.getAssetStatus());
             }
-            return pushFile(f, api(), config.assetGroup(), log, cancelled);
+            String group = project == null ? null : projectGroup(project, log);
+            if (group != null) return pushFile(f, api(), group, f.getName(), log, cancelled);
+            String name = project == null ? f.getName() : project.getFolder() + "__" + f.getName();
+            return pushFile(f, api(), config.assetGroup(), name, log, cancelled);
         }
     }
 
@@ -384,11 +478,11 @@ public class AssetLibraryService {
     }
 
     private boolean pushFile(GeneratedFile f, AssetApi api, String group, JobContext ctx) throws Exception {
-        return pushFile(f, api, group, ctx::log, ctx::isCancelled);
+        return pushFile(f, api, group, f.getName(), ctx::log, ctx::isCancelled);
     }
 
     /** @return true when the asset is Active */
-    private boolean pushFile(GeneratedFile f, AssetApi api, String group, java.util.function.Consumer<String> log,
+    private boolean pushFile(GeneratedFile f, AssetApi api, String group, String assetName, java.util.function.Consumer<String> log,
                              java.util.function.BooleanSupplier cancelled) throws Exception {
         if (f.getAssetId() != null && !"Failed".equals(f.getAssetStatus())) {
             log.accept(f.getName() + " đã có asset://" + f.getAssetId() + " – bỏ qua");
@@ -397,8 +491,9 @@ public class AssetLibraryService {
         if (f.getKind() == MediaKind.IMAGE && java.nio.file.Files.isRegularFile(fileLibrary.pathOf(f))) AssetApi.checkImage(fileLibrary.pathOf(f));
         String url = publicUrl(f, log);
         log.accept("Đẩy " + f.getName() + " vào Virtual Portrait (" + f.getKind().assetType() + ")…");
-        String id = api.createAsset(group, url, f.getKind().assetType(), f.getName());
+        String id = api.createAsset(group, url, f.getKind().assetType(), assetName);
         f.setAssetId(id);
+
         f.setAssetStatus("Processing");
         f.setAssetError(null);
         fileLibrary.save(f);

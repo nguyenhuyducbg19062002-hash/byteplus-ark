@@ -38,17 +38,24 @@ public class FileController {
     @GetMapping
     public PageResponse<GeneratedFileDto> list(@RequestParam(required = false) MediaKind kind,
                                                @RequestParam(defaultValue = "1") @Min(1) int page,
-                                               @RequestParam(defaultValue = "24") @Min(1) @Max(200) int size) {
-        return fileLibraryService.list(kind, page, size);
+                                               @RequestParam(defaultValue = "24") @Min(1) @Max(200) int size,
+                                               /** all (mặc định) / none (không thuộc dự án) / id dự án */
+                                               @RequestParam(required = false) @jakarta.validation.constraints.Pattern(regexp = "all|none|[0-9]+") String project) {
+        return fileLibraryService.list(kind, project, page, size);
     }
 
     /** Tải nhiều file về máy (.zip): theo danh sách ids, hoặc mọi file của một loại (kind) / cả thư viện. */
     @GetMapping("/download")
     public void download(@RequestParam(required = false) java.util.List<Long> ids,
                          @RequestParam(required = false) MediaKind kind,
+                         @RequestParam(required = false) @jakarta.validation.constraints.Pattern(regexp = "all|none|[0-9]+") String project,
                          jakarta.servlet.http.HttpServletResponse res) throws java.io.IOException {
         java.util.List<GeneratedFile> list = ids != null && !ids.isEmpty()
                 ? fileLibraryService.existing(ids) : fileLibraryService.allOfKind(kind);
+        if ((ids == null || ids.isEmpty()) && project != null && !project.equals("all")) {
+            Long pid = project.equals("none") ? null : Long.valueOf(project);
+            list = list.stream().filter(f -> java.util.Objects.equals(f.getProjectId(), pid)).toList();
+        }
         String sub = kind == null ? "" : kind == MediaKind.VIDEO ? "video/" : kind == MediaKind.IMAGE ? "anh/" : "";
         java.util.List<ark.service.ZipExport.Item> items = list.stream()
                 .map(f -> new ark.service.ZipExport.Item((sub.isEmpty() ? folderOf(f) : sub) + f.getName(), fileLibraryService.pathOf(f)))

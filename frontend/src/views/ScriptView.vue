@@ -90,6 +90,92 @@ async function loadApi888Models() {
 }
 watch(() => settings.provider, (p) => p === 'API888' && loadApi888Models(), { immediate: true })
 const providerRaw = computed(() => settings.provider === 'BOTSD' || settings.provider === 'API888')
+
+// ---------- tính năng theo nguồn video (theo tài liệu từng API) ----------
+/** Có API key BytePlus: cần cho tạo ảnh AI (Seedream), AI viết prompt, phân tích chặn – dù chọn nguồn video nào. */
+const hasBytePlusKey = computed(() => !!appSettings.settings?.apiKeySet)
+const NEED_KEY = 'Cần API key BytePlus (Cài đặt) – tạo ảnh AI / AI viết prompt luôn chạy bằng BytePlus'
+/** Nguồn đã lưu của dự án (tab Clip / Ảnh tham chiếu); form cấu hình dùng settings.provider. */
+const prov = computed(() => project.value?.provider || 'BYTEPLUS')
+const isBytePlus = computed(() => prov.value === 'BYTEPLUS')
+const PROVIDER_LABEL = { BYTEPLUS: 'BytePlus', BOTSD: 'BOTSD', API888: '888API' }
+/** Nơi task của clip đã được gửi (theo tiền tố mã task). */
+const taskSource = (t) => (!t ? null : t.startsWith('botsd:') ? 'BOTSD' : t.startsWith('888:') ? '888API' : 'BytePlus')
+const ALL_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9']
+const BOTSD_SECONDS = { sd20: [5, 10, 15], sd25: [5, 10, 15, 30], sd25hd: [5, 10, 15, 30], muse: [5, 10] }
+const BOTSD_MAX_IMAGES = { sd20: 30, sd25: 30, sd25hd: 30, muse: 1 }
+const ratioOptions = computed(() => {
+  if (settings.provider === 'BOTSD') return settings.botsdModel === 'muse' ? ['16:9', '9:16'] : ALL_RATIOS
+  if (settings.provider === 'API888') return api888Model.value?.ratios || ALL_RATIOS
+  return [...ALL_RATIOS, 'adaptive']
+})
+watch(ratioOptions, (opts) => {
+  if (opts.includes(settings.ratio)) return
+  const old = settings.ratio
+  settings.ratio = opts.includes('16:9') ? '16:9' : opts[0]
+  ElMessage.info(`Tỉ lệ ${old} không dùng được với lựa chọn này – đã đổi sang ${settings.ratio} (bấm Lưu cấu hình)`)
+})
+/** Clip X giây sẽ gửi bao nhiêu giây với nguồn / model đang chọn. */
+const durationRule = computed(() => {
+  if (settings.provider === 'BOTSD') {
+    const s = BOTSD_SECONDS[settings.botsdModel] || [5, 10, 15]
+    return `Thời lượng: BOTSD chỉ nhận ${s.join(' / ')}s – clip lẻ làm tròn lên mức gần nhất (vd 12s → 15s), clip dài hơn ${s[s.length - 1]}s bị cắt về ${s[s.length - 1]}s.`
+  }
+  if (settings.provider === 'API888') {
+    const m = api888Model.value
+    if (!m) return 'Thời lượng: model tự nhập – app giữ trong 4–15s.'
+    return m.durations
+      ? `Thời lượng: ${m.id} chỉ nhận ${m.durations.join(' / ')}s – clip làm tròn lên mức gần nhất, dài hơn thì cắt về ${m.durations[m.durations.length - 1]}s.`
+      : `Thời lượng: ${m.id} nhận ${m.min}–${m.max}s – clip ngắn hơn gửi ${m.min}s, dài hơn bị cắt về ${m.max}s.`
+  }
+  const m = settingsModel.value
+  return m ? `Thời lượng: ${m.name} nhận ${m.minDuration}–${m.maxDuration}s – clip ngoài khoảng này được kẹp về ${m.minDuration} / ${m.maxDuration}s.` : ''
+})
+/** Số ảnh tham chiếu tối đa / độ dài prompt tối đa của nguồn + model đã lưu của dự án (cảnh báo trước khi chạy). */
+const projMaxImages = computed(() => {
+  const p = project.value
+  if (!p) return null
+  if (p.provider === 'BOTSD') return BOTSD_MAX_IMAGES[p.botsdModel] || 30
+  if (p.provider === 'API888') return api888Models.value.find((m) => m.id === p.api888Model)?.maxImages || 9
+  return models.video.find((m) => m.id === p.model)?.maxRefImages || null
+})
+const projPromptMax = computed(() => {
+  const p = project.value
+  if (!p) return null
+  if (p.provider === 'BOTSD') return p.botsdModel === 'sd25' || p.botsdModel === 'sd25hd' ? 15000 : 20000
+  if (p.provider === 'API888') return api888Models.value.find((m) => m.id === p.api888Model)?.promptMax || null
+  return null
+})
+watch(prov, (p) => p === 'API888' && loadApi888Models(), { immediate: true })
+/** Số dư của nguồn đang chọn (BOTSD Point / 888API). */
+const balance = ref(null)
+async function loadBalance(p) {
+  balance.value = null
+  try {
+    if (p === 'BOTSD' && appSettings.settings?.botsdLoggedIn) {
+      const s = await api.get('/settings/botsd/status', { silent: true })
+      balance.value = `Số dư BOTSD: ${s.balance ?? '?'} Point`
+    } else if (p === 'API888' && appSettings.settings?.api888KeySet) {
+      const s = await api.get('/settings/api888/status', { silent: true })
+      balance.value = `Số dư 888API: ${s.balance ?? '?'} ${s.currency || ''}`
+    }
+  } catch {
+    balance.value = null
+  }
+}
+watch(() => settings.provider, (p) => loadBalance(p))
+/** 888API cần chỗ để link ảnh: TOS (AK/SK) hoặc Litterbox. */
+const api888HostNote = computed(() => {
+  const s = appSettings.settings
+  if (!s) return ''
+  if (!s.api888KeySet) return '⚠ Chưa nhập API key 888API (Cài đặt › 888API).'
+  if ((s.api888ImageHost || 'TOS') === 'TOS') {
+    return s.akskSet
+      ? 'Ảnh tải lên TOS riêng tư của bạn (link 48 giờ) trong thư mục của dự án này.'
+      : '⚠ Chỗ để ảnh là TOS nhưng chưa nhập AK/SK BytePlus – nhập AK/SK hoặc chọn Litterbox ở Cài đặt › 888API.'
+  }
+  return 'Ảnh tải lên Litterbox (link công khai, tự xoá sau 72 giờ).'
+})
 const imageModel = computed(() => models.image.find((m) => m.id === settings.imageModel))
 const IMAGE_STATUS = {
   PENDING: { status: 'queued', label: 'Chờ tạo ảnh' },
@@ -324,7 +410,15 @@ async function saveSettings() {
 
 async function removeProject() {
   await ElMessageBox.confirm(`Xoá dự án "${project.value.name}"? Video đã tạo vẫn giữ trong thư viện.`, 'Xoá dự án', { type: 'warning' })
-  await act('delete', () => api.delete(`/script-projects/${currentId.value}`))
+  let deleteImages = false
+  try {
+    await ElMessageBox.confirm('Xoá luôn ảnh tham chiếu của dự án này khỏi máy? Chọn “Giữ ảnh” thì ảnh ở lại thư viện (không thuộc dự án nào).',
+      'Ảnh tham chiếu của dự án', { confirmButtonText: 'Xoá cả ảnh', cancelButtonText: 'Giữ ảnh', distinguishCancelAndClose: true, type: 'warning' })
+    deleteImages = true
+  } catch (a) {
+    if (a === 'close') return
+  }
+  await act('delete', () => api.delete(`/script-projects/${currentId.value}`, { params: { deleteImages } }))
   currentId.value = projects.data.value?.[0]?.id || null
 }
 
@@ -351,7 +445,14 @@ async function saveClip(row, run) {
   ElMessage.success(run ? `Đã lưu và chạy riêng clip ${row.code}` : 'Đã lưu prompt')
 }
 const runClip = (row) => act('clip' + row.id, () => api.post(`/script-clips/${row.id}/run`))
-const cancelClip = (row) => act('clip' + row.id, () => api.post(`/script-clips/${row.id}/cancel`))
+async function cancelClip(row) {
+  const src = taskSource(row.taskId)
+  if (row.status === 'GENERATING' && src && src !== 'BytePlus') {
+    await ElMessageBox.confirm(`${src} không có lệnh huỷ: app chỉ ngừng theo dõi, task vẫn chạy và vẫn tính tiền trên ${src}. Tiếp tục?`,
+      'Ngừng theo dõi clip ' + row.code, { type: 'warning' })
+  }
+  await act('clip' + row.id, () => api.post(`/script-clips/${row.id}/cancel`))
+}
 /** AI (Dola-Seed) chỉ ra bằng tiếng Việt vì sao clip bị kiểm duyệt chặn: loại vi phạm, đoạn nghi vấn, prompt đã sửa. */
 async function analyzeBlock(row) {
   await act('analyze' + row.id, () => api.post(`/script-clips/${row.id}/analyze-block`, null, { timeout: 200000 }))
@@ -601,7 +702,8 @@ function downloadZip(what) {
               Chỉ chạy clip đã chọn{{ project.selectedPending ? ` · còn ${project.selectedPending}` : '' }}
             </el-tag>
             <div class="ml-auto flex flex-wrap gap-2">
-              <el-button v-if="project.status !== 'RUNNING' && project.refsMissing" type="primary" :loading="busy === 'all'" @click="runAll">
+              <el-button v-if="project.status !== 'RUNNING' && project.refsMissing && hasBytePlusKey" type="primary" :loading="busy === 'all'" @click="runAll">
+
                 <el-icon><MagicStick /></el-icon>&nbsp;Tạo ảnh thiếu + chạy video
               </el-button>
               <el-button v-if="project.status !== 'RUNNING' && project.onlySelected && project.selectedPending" type="primary" :loading="busy === 'resume'" @click="resumeSelected">
@@ -683,6 +785,10 @@ function downloadZip(what) {
                   </el-radio-group>
                 </div>
                 <template v-if="settings.provider === 'API888'">
+                  <div>
+                    <label class="field-label">Độ phân giải</label>
+                    <div class="pt-1.5 text-sm">{{ api888Model?.resolution || '720p' }} <span class="hint">(cố định theo model)</span></div>
+                  </div>
                   <div class="sm:col-span-3">
                     <label class="field-label">Model 888API</label>
                     <el-select v-model="settings.api888Model" class="w-full" filterable allow-create default-first-option
@@ -726,6 +832,13 @@ function downloadZip(what) {
                   (clip dài hơn bị cắt về mức tối đa), tỉ lệ {{ api888Model.ratios.join(', ') }}, tối đa {{ api888Model.maxImages }} ảnh.</template>
                 888API không có lệnh huỷ – dừng clip chỉ ngừng theo dõi. Không dùng “Tạo âm thanh” và model BytePlus bên dưới.
               </p>
+              <p v-if="settings.provider === 'BYTEPLUS'" class="hint mb-4">
+                BytePlus: ảnh nhân vật được đẩy lên Virtual Portrait vào <b>asset group riêng của dự án này</b> (app tự tạo) rồi gửi <code>asset://</code>
+                để không bị chặn mặt người; chỉ dùng asset của dự án này. Có “Tạo âm thanh” và tỉ lệ <code>adaptive</code>; dừng clip là huỷ hẳn task.
+              </p>
+              <p class="mb-4 text-xs text-slate-600 dark:text-zinc-300">
+                {{ durationRule }}<template v-if="balance"> · <b class="text-emerald-600 dark:text-emerald-400">{{ balance }}</b></template>
+              </p>
               <p v-if="settings.provider === 'BOTSD'" class="hint mb-4">
                 BOTSD: ảnh tham chiếu gửi thẳng từ máy (không cần Virtual Portrait), tính bằng Point BOTSD (đăng nhập ở Cài đặt › BOTSD).
                 Thời lượng clip làm tròn lên 5 / 10 / 15 / 30s. BOTSD không có lệnh huỷ – dừng clip chỉ ngừng theo dõi, Point đã trừ.
@@ -748,7 +861,7 @@ function downloadZip(what) {
                 <div>
                   <label class="field-label">Tỉ lệ</label>
                   <el-select v-model="settings.ratio" class="w-full">
-                    <el-option v-for="r in ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive']" :key="r" :label="r" :value="r" />
+                    <el-option v-for="r in ratioOptions" :key="r" :label="r" :value="r" />
                   </el-select>
                 </div>
                 <div>
@@ -791,10 +904,15 @@ function downloadZip(what) {
                 </div>
               </div>
               <div class="mt-4 flex flex-wrap items-center gap-4">
-                <el-checkbox v-model="settings.generateAudio">Tạo âm thanh (thoại trong prompt)</el-checkbox>
+                <el-checkbox v-if="settings.provider === 'BYTEPLUS'" v-model="settings.generateAudio">Tạo âm thanh (thoại trong prompt)</el-checkbox>
                 <el-checkbox v-model="settings.autoApproveImages">Tự duyệt ảnh AI (bỏ qua bước chờ duyệt)</el-checkbox>
                 <el-button type="primary" plain :loading="busy === 'settings'" @click="saveSettings">Lưu cấu hình</el-button>
-                <span class="hint">Mỗi clip dùng thời lượng ghi trong kịch bản (cột DÀI). Song song nhiều quá dễ bị BytePlus trả 429 – app sẽ tự chờ rồi gửi lại.</span>
+                <span class="hint">
+                  Mỗi clip dùng thời lượng ghi trong kịch bản (cột DÀI).
+                  <template v-if="settings.provider === 'BOTSD'">BOTSD giới hạn số task chạy cùng lúc theo tài khoản (vượt thì app tự chờ 30s); app gửi lần lượt từng task.</template>
+                  <template v-else-if="settings.provider === 'API888'">888API: nên để song song 3; gặp 429 app chờ đúng thời gian máy chủ yêu cầu.</template>
+                  <template v-else>Song song nhiều quá dễ bị BytePlus trả 429 – app sẽ tự chờ rồi gửi lại.</template>
+                </span>
               </div>
             </el-collapse-item>
           </el-collapse>
@@ -865,6 +983,10 @@ function downloadZip(what) {
                         <div>
                           <label class="field-label">Seedance prompt (gửi nguyên văn)</label>
                           <el-input v-if="drafts[row.id]" v-model="drafts[row.id].prompt" type="textarea" :autosize="{ minRows: 8, maxRows: 22 }" class="font-mono" />
+                          <div v-if="drafts[row.id] && projPromptMax" class="mt-1 text-right text-xs"
+                            :class="drafts[row.id].prompt.length > projPromptMax ? 'font-semibold text-rose-600' : 'text-slate-400'">
+                            {{ drafts[row.id].prompt.length.toLocaleString() }} / {{ projPromptMax.toLocaleString() }} ký tự ({{ PROVIDER_LABEL[prov] }})
+                          </div>
                         </div>
                         <div class="flex flex-wrap items-center gap-3">
                           <span class="text-sm text-slate-500">Thời lượng</span>
@@ -879,7 +1001,7 @@ function downloadZip(what) {
                             </div>
                             <div class="flex gap-2">
                               <el-button v-if="row.blockAnalysis?.fixedPrompt" size="small" type="primary" plain @click="useFixedPrompt(row)">Dùng prompt đã sửa</el-button>
-                              <el-button size="small" :loading="row.analyzing || busy === 'analyze' + row.id" @click="analyzeBlock(row)">
+                              <el-button v-if="hasBytePlusKey" size="small" :loading="row.analyzing || busy === 'analyze' + row.id" @click="analyzeBlock(row)">
                                 {{ row.analyzing ? 'AI đang phân tích…' : row.blockAnalysis ? 'Phân tích lại' : 'Phân tích vì sao bị chặn' }}
                               </el-button>
                             </div>
@@ -894,7 +1016,10 @@ function downloadZip(what) {
                               <div v-if="it.fix" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300"><b>Sửa thành:</b> {{ it.fix }}</div>
                             </li>
                           </ol>
-                          <p v-if="!row.blockAnalysis && !row.analyzing" class="hint">BytePlus không nói đoạn nào bị chặn – bấm nút để AI đọc prompt + lời thoại và chỉ ra bằng tiếng Việt.</p>
+                          <p v-if="!row.blockAnalysis && !row.analyzing" class="hint">
+                            <template v-if="hasBytePlusKey">{{ taskSource(row.taskId) && taskSource(row.taskId) !== 'BytePlus' ? taskSource(row.taskId) : 'BytePlus' }} không nói đoạn nào bị chặn – bấm nút để AI (BytePlus) đọc prompt + lời thoại và chỉ ra bằng tiếng Việt.</template>
+                            <template v-else>Thông báo của máy chủ ở cột Tiến độ / lỗi. Muốn AI phân tích vì sao bị chặn cần API key BytePlus.</template>
+                          </p>
                         </div>
                         <ul v-if="row.warnings.length" class="space-y-1 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                           <li v-for="w in row.warnings" :key="w">• {{ w }}</li>
@@ -911,7 +1036,7 @@ function downloadZip(what) {
                           <pre class="whitespace-pre-wrap rounded-lg bg-slate-50 p-3 font-sans text-xs text-slate-600 dark:bg-zinc-900/50 dark:text-zinc-300">{{ row.dialogue }}</pre>
                         </div>
                         <p v-if="row.note" class="text-xs text-slate-500"><b>Dàn dựng:</b> {{ row.note }}</p>
-                        <p v-if="row.taskId" class="font-mono text-xs text-slate-400">task: {{ row.taskId }}</p>
+                        <p v-if="row.taskId" class="font-mono text-xs text-slate-400">task ({{ taskSource(row.taskId) }}): {{ row.taskId }}</p>
                       </div>
                     </div>
                   </template>
@@ -936,6 +1061,9 @@ function downloadZip(what) {
                         :title="row.missingRefs.includes(c) ? 'Chưa gán ảnh' : ''"
                       >{{ i + 1 }}·{{ c }}</span>
                     </div>
+                    <div v-if="projMaxImages && row.refCodes.length > projMaxImages" class="mt-1 text-[11px] font-medium text-rose-600">
+                      {{ row.refCodes.length }} ảnh > tối đa {{ projMaxImages }} của model {{ PROVIDER_LABEL[prov] }} – đổi model hoặc bớt ảnh
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="Trạng thái" width="150">
@@ -943,6 +1071,9 @@ function downloadZip(what) {
                     <StatusBadge v-if="row.status === 'PENDING' && row.missingRefs.length" status="missing" label="Chờ ảnh" />
                     <StatusBadge v-else :status="CLIP_STATUS[row.status].status" :label="CLIP_STATUS[row.status].label" />
                     <div v-if="row.attempt" class="mt-1 text-[11px] text-slate-400">lần thử {{ row.attempt }}</div>
+                    <div v-if="row.taskId && taskSource(row.taskId) !== PROVIDER_LABEL[prov]" class="mt-1 text-[11px] text-amber-600" title="Clip này đã gửi ở nguồn khác với nguồn hiện tại của dự án – app theo dõi tiếp ở đúng nguồn đã gửi">
+                      gửi qua {{ taskSource(row.taskId) }}
+                    </div>
                     <div v-if="row.runSelected && (row.status === 'PENDING' || row.status === 'GENERATING')" class="mt-1 text-[11px] font-medium text-indigo-500">● trong lượt chạy riêng</div>
                     <el-icon v-if="row.warnings.length" class="ml-1 text-indigo-500" :title="row.warnings.join('\n')"><WarningFilled /></el-icon>
                   </template>
@@ -958,7 +1089,10 @@ function downloadZip(what) {
                   <template #default="{ row }">
                     <div class="flex justify-end gap-1" @click.stop>
                       <el-button v-if="row.file" size="small" text type="primary" tag="a" :href="row.file.url" target="_blank"><el-icon><VideoCamera /></el-icon></el-button>
-                      <el-button v-if="row.status === 'GENERATING' || row.status === 'PENDING'" size="small" text :loading="busy === 'clip' + row.id" @click="cancelClip(row)">Dừng</el-button>
+                      <el-button v-if="row.status === 'GENERATING' || row.status === 'PENDING'" size="small" text :loading="busy === 'clip' + row.id"
+                        :title="row.status === 'GENERATING' && taskSource(row.taskId) !== 'BytePlus' ? 'Nguồn này không có lệnh huỷ – chỉ ngừng theo dõi' : ''" @click="cancelClip(row)">
+                        {{ row.status === 'GENERATING' && taskSource(row.taskId) && taskSource(row.taskId) !== 'BytePlus' ? 'Ngừng theo dõi' : 'Dừng' }}
+                      </el-button>
                       <el-button v-if="row.status !== 'GENERATING'" size="small" text type="primary" :loading="busy === 'clip' + row.id" title="Chỉ chạy clip này" @click="runClip(row)">{{ row.status === 'PENDING' ? 'Chạy ngay' : 'Tạo lại' }}</el-button>
                       <el-button size="small" text @click="toggle(row)">Chi tiết</el-button>
                     </div>
@@ -979,29 +1113,38 @@ function downloadZip(what) {
               <el-badge v-if="project.imagesReview" :value="project.imagesReview" class="ml-1" type="primary" title="Chờ duyệt" />
             </template>
             <div class="mb-4 flex flex-wrap items-center gap-3">
-              <el-button type="primary" :disabled="!project.refsMissing || project.imagesPending > 0" :loading="busy === 'gen'" @click="generateRefs()">
+              <el-button type="primary" :disabled="!hasBytePlusKey || !project.refsMissing || project.imagesPending > 0" :title="hasBytePlusKey ? '' : NEED_KEY" :loading="busy === 'gen'" @click="generateRefs()">
                 <el-icon><MagicStick /></el-icon>&nbsp;Tạo bằng AI các ảnh còn thiếu ({{ project.refsMissing }})
               </el-button>
-              <el-button v-if="aiTargets.length || busy === 'aiAll'" type="primary" plain :loading="busy === 'aiAll'" @click="aiWriteAll">
+              <el-button v-if="aiTargets.length || busy === 'aiAll'" type="primary" plain :disabled="!hasBytePlusKey" :title="hasBytePlusKey ? '' : NEED_KEY" :loading="busy === 'aiAll'" @click="aiWriteAll">
                 <el-icon><EditPen /></el-icon>&nbsp;{{ busy === 'aiAll' ? `AI đang viết prompt ${aiProgress}` : `AI viết prompt ảnh (${aiTargets.length})` }}
               </el-button>
               <el-button v-if="project.imagesReview" type="success" :loading="busy === 'approveAll'" @click="approveAll">
                 <el-icon><Select /></el-icon>&nbsp;Duyệt tất cả ({{ project.imagesReview }})
               </el-button>
               <el-button v-if="project.imagesPending" type="warning" plain :loading="busy === 'stopgen'" @click="stopRefs">Dừng tạo ảnh ({{ project.imagesPending }})</el-button>
-              <el-button v-if="vpPending.length" type="warning" plain :loading="busy === 'vp'" @click="pushCharactersToVp">
+              <el-button v-if="isBytePlus && vpPending.length" type="warning" plain :loading="busy === 'vp'" @click="pushCharactersToVp">
                 <el-icon><UploadFilled /></el-icon>&nbsp;Đẩy {{ vpPending.length }} ảnh nhân vật lên Virtual Portrait
               </el-button>
               <el-button plain @click="downloadZip('images')"><el-icon><Download /></el-icon>&nbsp;Tải hết ảnh về (.zip)</el-button>
               <el-button type="success" plain @click="(folderImportFiles = []), (folderImport = true)"><el-icon><FolderOpened /></el-icon>&nbsp;Nhập thư mục ảnh</el-button>
               <el-button :loading="busy === 'auto'" @click="autoMatch"><el-icon><Connection /></el-icon>&nbsp;Tự ghép theo tên file</el-button>
-              <el-button type="primary" plain :loading="busy === 'vpmatch'" @click="matchVpAssets"><el-icon><Connection /></el-icon>&nbsp;Ghép asset VP theo tên</el-button>
-              <p class="hint max-w-3xl">
-                Ảnh nhân vật lấy từ máy được app tự đẩy lên Virtual Portrait (qua bucket TOS riêng tư) trước khi gửi clip – hoặc bấm nút đẩy trước cho nhanh.
+              <el-button v-if="isBytePlus" type="primary" plain :loading="busy === 'vpmatch'" @click="matchVpAssets"><el-icon><Connection /></el-icon>&nbsp;Ghép asset VP theo tên</el-button>
+              <p class="w-full text-xs text-slate-600 dark:text-zinc-300">
+                Thư viện ảnh <b>riêng của dự án này</b>: “Tự ghép theo tên file” và lúc nhập Excel chỉ tìm ảnh của dự án này; chọn ảnh dự án khác trong Thư viện thì app chép thành ảnh riêng.
+                <template v-if="prov === 'BOTSD'"> · BOTSD: ảnh gửi thẳng từ máy (jpg / png / webp ≤30MB), không cần Virtual Portrait<template v-if="project.botsdModel === 'muse'">; Muse AI chỉ nhận 1 ảnh</template>.</template>
+                <template v-else-if="prov === 'API888'"> · 888API: {{ api888HostNote }}<template v-if="project.api888Model?.endsWith('-face')"> Model -face chỉ nhận PNG / JPEG ≤10MB.</template></template>
+              </p>
+              <p v-if="isBytePlus" class="hint max-w-3xl">
+                Ảnh nhân vật lấy từ máy được app tự đẩy lên Virtual Portrait (asset group riêng của dự án, qua bucket TOS riêng tư) trước khi gửi clip – hoặc bấm nút đẩy trước cho nhanh.
                 Ảnh tạo bằng AI vào mục <b>chờ duyệt</b> trước (<code>_cho-duyet/</code>): bấm <b>Duyệt</b> để đổi tên thành <code>MÃ.jpeg</code> trong thư mục ảnh tham chiếu của dự án (ảnh cũ chuyển vào <code>_cu/</code>; nếu chọn “thư mục riêng” trong Cấu hình chạy thì chép thêm vào đó theo loại), hoặc <b>Tạo lại</b> / <b>Bỏ</b>. Việc đẩy Virtual Portrait do phần chạy video tự làm khi gửi clip.
                 Prompt ảnh được viết sẵn từ mô tả nhân vật / bối cảnh / đạo cụ trong Excel (bấm “Prompt” để xem, sửa). Nhân vật nhiều bộ đồ:
                 bộ đầu được tạo trước và dùng làm tham chiếu khuôn mặt cho các bộ sau. Hoặc đặt tên file đúng mã (vd <code>CHAR_YVO_NAVYTEE_01.png</code>) rồi bấm “Tự ghép”, hoặc tải lên / chọn từ thư viện cho từng mã.
                 Ảnh nhân vật là người thật nên đẩy vào <b>Virtual Portrait</b> trước – khi ảnh đã có asset Active, app gửi <code>asset://</code> để Seedance không chặn mặt người.
+              </p>
+              <p v-else class="hint max-w-3xl">
+                Ảnh tạo bằng AI vào mục <b>chờ duyệt</b> trước: bấm <b>Duyệt</b> để dùng, hoặc <b>Tạo lại</b> / <b>Bỏ</b>. Hoặc đặt tên file đúng mã
+                (vd <code>CHAR_YVO_NAVYTEE_01.png</code>) rồi bấm “Tự ghép”, hoặc tải lên / chọn từ thư viện cho từng mã. Ảnh gửi đi đúng thứ tự Ảnh 1, 2… của clip.
               </p>
             </div>
             <AsyncState :loading="refs.loading.value && !refs.data.value.length" :error="refs.error.value" :empty="!refs.data.value.length" empty-text="Dự án chưa có mã ảnh tham chiếu" @retry="refs.run()">
@@ -1029,7 +1172,7 @@ function downloadZip(what) {
                     </div>
                     <span class="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-900/90 dark:text-zinc-300">{{ KIND[r.kind] }} · {{ r.usedBy }} clip</span>
                     <span v-if="IMAGE_STATUS[r.imageStatus] && r.imageStatus !== 'SUCCEEDED'" class="absolute bottom-2 left-2"><StatusBadge :status="IMAGE_STATUS[r.imageStatus].status" :label="IMAGE_STATUS[r.imageStatus].label" /></span>
-                    <span v-if="r.file?.assetId" class="absolute right-2 top-2"><StatusBadge :status="r.file.assetStatus" :label="'VP ' + (r.file.assetStatus || '')" /></span>
+                    <span v-if="isBytePlus && r.file?.assetId" class="absolute right-2 top-2"><StatusBadge :status="r.file.assetStatus" :label="'VP ' + (r.file.assetStatus || '')" /></span>
                   </div>
                   <div class="space-y-1 p-3">
                     <div class="font-mono text-xs font-semibold">{{ r.code }}</div>
@@ -1038,11 +1181,14 @@ function downloadZip(what) {
                     <div v-if="r.blockedReason" class="rounded-md bg-rose-50 px-2 py-1 text-[11px] text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
                       ⛔ {{ r.blockedReason }}. Đẩy ảnh này lên Virtual Portrait (khi VP Active app gửi asset://) hoặc bấm “Tạo lại AI”.
                     </div>
+                    <div v-if="r.file && r.file.projectId !== project.id" class="rounded-md bg-rose-50 px-2 py-1 text-[11px] text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+                      ⚠ Ảnh này {{ r.file.projectId ? 'thuộc dự án khác' : 'không thuộc dự án nào' }} – bấm “Thư viện” / “Tải lên” chọn lại ảnh cho dự án này.
+                    </div>
                     <div v-if="r.identityCode" class="text-[11px] text-indigo-600 dark:text-indigo-400">Giữ khuôn mặt theo {{ r.identityCode }}</div>
                     <div v-if="r.imageError" class="line-clamp-2 text-[11px]" :class="r.imageStatus === 'FAILED' ? 'text-rose-600' : 'text-slate-500'" :title="r.imageError">{{ r.imageError }}</div>
                     <div v-if="r.imageStatus === 'REVIEW'" class="flex flex-wrap gap-1 rounded-lg bg-indigo-50 p-2 dark:bg-indigo-500/10">
                       <el-button size="small" type="success" :loading="busy === 'approve' + r.code" @click="approveRef(r)"><el-icon><Select /></el-icon>&nbsp;Duyệt</el-button>
-                      <el-button size="small" type="primary" plain :loading="busy === 'gen' + r.code" @click="generateRefs([r.code], true)"><el-icon><RefreshRight /></el-icon>&nbsp;Tạo lại</el-button>
+                      <el-button size="small" type="primary" plain :disabled="!hasBytePlusKey" :title="hasBytePlusKey ? '' : NEED_KEY" :loading="busy === 'gen' + r.code" @click="generateRefs([r.code], true)"><el-icon><RefreshRight /></el-icon>&nbsp;Tạo lại</el-button>
                       <el-button size="small" text type="danger" :loading="busy === 'reject' + r.code" @click="rejectRef(r)">Bỏ ảnh mới</el-button>
                     </div>
                     <div class="flex flex-wrap gap-1 pt-2">
@@ -1050,7 +1196,7 @@ function downloadZip(what) {
                         <el-button size="small" :loading="busy === 'ref' + r.code"><el-icon><Upload /></el-icon>&nbsp;Tải lên</el-button>
                       </el-upload>
                       <el-button size="small" @click="pickerFor = r.code"><el-icon><Files /></el-icon>&nbsp;Thư viện</el-button>
-                      <el-button v-if="r.imageStatus !== 'REVIEW'" size="small" type="primary" plain :disabled="r.imageStatus === 'PENDING' || r.imageStatus === 'GENERATING'" :loading="busy === 'gen' + r.code" @click="generateRefs([r.code], true)">
+                      <el-button v-if="r.imageStatus !== 'REVIEW'" size="small" type="primary" plain :disabled="!hasBytePlusKey || r.imageStatus === 'PENDING' || r.imageStatus === 'GENERATING'" :title="hasBytePlusKey ? '' : NEED_KEY" :loading="busy === 'gen' + r.code" @click="generateRefs([r.code], true)">
                         <el-icon><MagicStick /></el-icon>&nbsp;{{ r.file ? 'Tạo lại AI' : 'Tạo AI' }}
                       </el-button>
                       <el-button size="small" text @click="openPrompt(r)">Prompt</el-button>
@@ -1072,16 +1218,16 @@ function downloadZip(what) {
       </p>
       <el-input v-model="promptDraft" type="textarea" :autosize="{ minRows: 8, maxRows: 20 }" maxlength="6000" show-word-limit />
       <template #footer>
-        <el-button class="float-left" :loading="busy === 'aiDraft'" @click="aiDraft"><el-icon><EditPen /></el-icon>&nbsp;AI viết lại (Language)</el-button>
+        <el-button class="float-left" :disabled="!hasBytePlusKey" :title="hasBytePlusKey ? '' : NEED_KEY" :loading="busy === 'aiDraft'" @click="aiDraft"><el-icon><EditPen /></el-icon>&nbsp;AI viết lại (Language)</el-button>
         <el-button @click="promptFor = null">Huỷ</el-button>
         <el-button :loading="busy === 'prompt'" :disabled="!promptDraft.trim()" @click="savePrompt(false)">Lưu</el-button>
-        <el-button type="primary" :loading="busy === 'prompt'" :disabled="!promptDraft.trim()" @click="savePrompt(true)">Lưu &amp; tạo ảnh</el-button>
+        <el-button type="primary" :loading="busy === 'prompt'" :disabled="!promptDraft.trim() || !hasBytePlusKey" :title="hasBytePlusKey ? '' : NEED_KEY" @click="savePrompt(true)">Lưu &amp; tạo ảnh</el-button>
       </template>
     </el-dialog>
 
     <RefFolderImport v-if="project" v-model="folderImport" :project-id="project.id" :references="refs.data.value" :initial-files="folderImportFiles" @done="refs.run(), refresh(false)" />
 
-    <LibraryPicker :model-value="!!pickerFor" kind="image" :multiple="false" @update:model-value="(v) => !v && (pickerFor = null)" @pick="onPicked" />
+    <LibraryPicker :model-value="!!pickerFor" kind="image" :multiple="false" :project-id="project?.id" @update:model-value="(v) => !v && (pickerFor = null)" @pick="onPicked" />
   </div>
 </template>
 

@@ -41,6 +41,7 @@ public class FileLibraryService {
 
     private final Config config;
     private final GeneratedFileRepository repository;
+    private final ark.repository.ScriptProjectRepository projects;
 
     public Path root() {
         return config.outputDir().toAbsolutePath().normalize();
@@ -69,7 +70,59 @@ public class FileLibraryService {
         f.setPrompt(prompt == null ? null : prompt.length() > 4000 ? prompt.substring(0, 4000) : prompt);
         f.setTaskId(taskId);
         f.setJobId(jobId);
+        if (f.getProjectId() == null) f.setProjectId(ownerOf(rel));
         return repository.save(f);
+    }
+
+    /** Như record nhưng ghi rõ dự án sở hữu (ảnh tham chiếu / video của clip). */
+    public GeneratedFile recordFor(Long projectId, SavedOutput out, String model, String prompt, String taskId) {
+        GeneratedFile f = record(out, model, prompt, taskId, null);
+        if (projectId != null && !projectId.equals(f.getProjectId())) {
+            f.setProjectId(projectId);
+            f = repository.save(f);
+        }
+        return f;
+    }
+
+    /** Dự án sở hữu theo đường dẫn: assets/&lt;thư mục dự án&gt;/… hoặc videos/&lt;thư mục dự án&gt;/… (null nếu không khớp). */
+    public Long ownerOf(String rel) {
+        if (rel == null) return null;
+        String[] parts = rel.replace('\\', '/').split("/");
+        if (parts.length < 3 || !(parts[0].equals("assets") || parts[0].equals("videos"))) return null;
+        String folder = parts[1];
+        return projects.findAll().stream().filter(p -> folder.equals(p.getFolder())).map(ark.entity.ScriptProject::getId)
+                .findFirst().orElse(null);
+    }
+
+    /** Ảnh của một dự án (mới nhất trước). */
+    public List<GeneratedFile> imagesOf(Long projectId) {
+        return repository.findByKindAndProjectIdOrderByCreatedAtDesc(MediaKind.IMAGE, projectId);
+    }
+
+    public List<GeneratedFile> filesOf(Long projectId) {
+        return repository.findByProjectId(projectId);
+    }
+
+    /**
+     * Sao chép file sang thư mục dir thành file riêng của dự án (khi chọn ảnh của dự án khác / ảnh lẻ): dự án kia sửa / xoá /
+     * đẩy Virtual Portrait không ảnh hưởng. Giữ URL gốc + model (ảnh Seedream còn hạn vẫn được tin cậy), không giữ asset.
+     */
+    public GeneratedFile copyTo(GeneratedFile src, Long projectId, Path dir, String baseName) throws IOException {
+        Path from = pathOf(src);
+        if (!Files.isRegularFile(from)) throw new IllegalArgumentException(src.getName() + " không còn trên máy");
+        String name = from.getFileName().toString();
+        String ext = name.contains(".") ? name.substring(name.lastIndexOf('.')) : "";
+        Files.createDirectories(dir);
+        Path target = dir.resolve(baseName + ext);
+        for (int v = 2; Files.exists(target); v++) target = dir.resolve(baseName + "_v" + v + ext);
+        Files.copy(from, target);
+        GeneratedFile f = recordFor(projectId, new SavedOutput(target, src.isSourceUrlValid() ? src.getSourceUrl() : null),
+                src.getModel(), src.getPrompt(), src.getTaskId());
+        if (src.isSourceUrlValid()) { // giữ hạn URL gốc
+            f.setCreatedAt(src.getCreatedAt());
+            f = repository.save(f);
+        }
+        return f;
     }
 
     public GeneratedFile save(GeneratedFile f) {
@@ -121,8 +174,15 @@ public class FileLibraryService {
     }
 
     public PageResponse<GeneratedFileDto> list(MediaKind kind, int page, int size) {
+        return list(kind, null, page, size);
+    }
+
+    /** project: null = mọi file, "none" = file không thuộc dự án nào, số = file của dự án đó. */
+    public PageResponse<GeneratedFileDto> list(MediaKind kind, String project, int page, int size) {
         PageRequest pr = PageRequest.of(Math.max(page, 1) - 1, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
-        Page<GeneratedFile> p = kind == null ? repository.findAll(pr) : repository.findByKind(kind, pr);
+        boolean all = project == null || project.isBlank() || project.equals("all");
+        Long pid = all || project.equals("none") ? null : Long.valueOf(project);
+        Page<GeneratedFile> p = repository.search(kind, all, pid, pr);
         return new PageResponse<>(p.getContent().stream().map(this::toDto).toList(), p.getTotalElements(), page, size);
     }
 
@@ -134,6 +194,8 @@ public class FileLibraryService {
             Files.move(from, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
         f.setPath(relative(target));
+        Long owner = ownerOf(f.getPath());
+        if (owner != null) f.setProjectId(owner);
         return repository.save(f);
     }
 
@@ -219,5 +281,17 @@ public class FileLibraryService {
             }
         }
         if (imported > 0) log.info("Imported {} existing file(s) into the library", imported);
+        // File cũ chưa ghi dự án: nhận dự án theo thư mục chứa nó
+        int owned = 0;
+        for (GeneratedFile f : repository.findByProjectIdIsNull()) {
+            Long owner = ownerOf(f.getPath());
+            if (owner != null) {
+                f.setProjectId(owner);
+                repository.save(f);
+                owned++;
+            }
+        }
+        if (owned > 0) log.info("Gán dự án cho {} file thư viện theo thư mục", owned);
+
     }
 }

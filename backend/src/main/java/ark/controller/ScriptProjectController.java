@@ -96,8 +96,9 @@ public class ScriptProjectController {
     }
 
     @DeleteMapping("/script-projects/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
-        service.delete(id);
+    public ResponseEntity<Void> delete(@PathVariable Long id,
+                                       @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean deleteImages) {
+        service.delete(id, deleteImages);
         return ResponseEntity.noContent().build();
     }
 

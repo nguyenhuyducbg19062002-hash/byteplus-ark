@@ -9,7 +9,7 @@ param([switch]$NoInstall)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $appName = 'Ark Studio'
-$version = '1.04'   # tăng khi phát hành bản mới (tên file Setup + mục gỡ cài đặt)
+$version = '1.05'   # tăng khi phát hành bản mới (tên file Setup + mục gỡ cài đặt)
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 

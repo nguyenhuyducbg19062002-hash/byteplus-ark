@@ -8,6 +8,8 @@ import StatusBadge from './StatusBadge.vue'
 
 /** Lưới ảnh / video trong thư viện, kèm thao tác: đẩy Virtual Portrait, dùng làm tham chiếu, tải, xoá. */
 const props = defineProps({
+  /** (id dự án) => tên dự án – hiện nhãn dự án sở hữu file */
+  projectName: Function,
   files: { type: Array, default: () => [] },
   deletable: Boolean,
   /** Bật ô chọn để tải hàng loạt; danh sách id đã chọn dùng v-model:selected */
@@ -91,6 +93,9 @@ async function remove(f) {
       </div>
       <div class="space-y-2 p-3">
         <div class="truncate text-sm font-medium" :title="f.prompt || f.name">{{ f.name }}</div>
+        <div v-if="projectName && f.projectId" class="truncate text-[11px] text-indigo-600 dark:text-indigo-400" :title="projectName(f.projectId)">
+          Dự án: {{ projectName(f.projectId) || '#' + f.projectId }}
+        </div>
         <div class="hint flex items-center justify-between">
           <span>{{ formatSize(f.size) || 'mất file' }}</span>
           <span>{{ formatTime(f.createdAt) }}</span>

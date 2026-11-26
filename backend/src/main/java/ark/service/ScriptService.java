@@ -127,12 +127,32 @@ public class ScriptService {
 
     @Transactional
     public void delete(Long id) {
+        delete(id, false);
+    }
+
+    /**
+     * Xoá dự án. deleteImages = true → xoá luôn ảnh tham chiếu của dự án (file + thư viện; video giữ lại);
+     * false → ảnh / video ở lại thư viện thành "không thuộc dự án nào".
+     */
+    public void delete(Long id, boolean deleteImages) {
         ScriptProject p = project(id);
         if (p.getStatus() == ScriptProject.Status.RUNNING || clips.countByProjectIdAndStatus(id, ScriptClip.Status.GENERATING) > 0) {
             throw new IllegalStateException("Dự án đang chạy – tạm dừng và chờ các clip đang tạo xong rồi mới xoá");
         }
         clips.deleteByProjectId(id);
         references.deleteByProjectId(id);
+        for (GeneratedFile f : fileLibrary.filesOf(id)) {
+            try {
+                if (deleteImages && f.getKind() == MediaKind.IMAGE) {
+                    fileLibrary.delete(f.getId());
+                } else {
+                    f.setProjectId(null);
+                    fileLibrary.save(f);
+                }
+            } catch (Exception e) {
+                log.warn("Không xoá / tách được file {} của dự án {}: {}", f.getName(), id, e.getMessage());
+            }
+        }
         projects.delete(p);
     }
 
@@ -598,6 +618,16 @@ public class ScriptService {
         if (fileId != null) {
             GeneratedFile f = fileLibrary.get(fileId);
             if (f.getKind() != MediaKind.IMAGE) throw new IllegalArgumentException(f.getName() + " không phải ảnh");
+            if (!id.equals(f.getProjectId())) {
+                // Ảnh của dự án khác / ảnh lẻ → chép thành ảnh riêng của dự án này (2 dự án trùng mã không dùng chung một file)
+                try {
+                    GeneratedFile copy = fileLibrary.copyTo(f, id, fileLibrary.root().resolve("assets").resolve(project(id).getFolder()), code);
+                    log.info("Mã {} của dự án {}: chép ảnh {} (dự án {}) thành {}", code, id, f.getName(), f.getProjectId(), copy.getName());
+                    fileId = copy.getId();
+                } catch (IOException e) {
+                    throw new IllegalStateException("Không chép được ảnh " + f.getName() + " vào dự án: " + e.getMessage(), e);
+                }
+            }
         }
         if (r.getImageStatus() == ScriptReference.ImageStatus.REVIEW) { // gán ảnh tay → bỏ ảnh AI đang chờ duyệt
             imageRunner.discardPending(r);
@@ -621,7 +651,7 @@ public class ScriptService {
         Path target = dir.resolve(code + "." + ext);
         for (int v = 2; Files.exists(target); v++) target = dir.resolve(code + "_v" + v + "." + ext);
         Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
-        GeneratedFile f = fileLibrary.record(new SavedOutput(target, null), null, "Ảnh tham chiếu " + code + " – " + p.getName(), null, null);
+        GeneratedFile f = fileLibrary.recordFor(id, new SavedOutput(target, null), null, "Ảnh tham chiếu " + code + " – " + p.getName(), null);
         return setReference(id, code, f.getId());
     }
 
@@ -631,7 +661,8 @@ public class ScriptService {
      */
     @Transactional
     public int autoMatchReferences(Long id) {
-        List<GeneratedFile> images = files.findByKindOrderByCreatedAtDesc(MediaKind.IMAGE);
+        // Chỉ ảnh của chính dự án: dự án khác trùng mã (CHAR_X_01) là nhân vật / ảnh khác
+        List<GeneratedFile> images = fileLibrary.imagesOf(id);
         int n = 0;
         for (ScriptReference r : references.findByProjectIdOrderByKindAscCodeAsc(id)) {
             if (r.isAwaitingImage() || (r.getFileId() != null && runner.fileUsable(r.getFileId()))) continue;
@@ -667,9 +698,10 @@ public class ScriptService {
             if (r.isAwaitingImage()) continue; // đang tạo / chờ duyệt ảnh AI
             if (r.getFileId() != null && files.findById(r.getFileId())
                     .map(f -> f.getAssetId() != null && "Active".equals(f.getAssetStatus())).orElse(false)) continue;
-            Map<String, Object> hit = AssetLibraryService.findAssetFor(assets, r.getCode());
+            Map<String, Object> hit = assetLibrary.findAssetFor(assets, r.getCode(), p);
             if (hit == null) continue;
-            GeneratedFile f = assetLibrary.fileForAsset(hit, dir, r.getCode());
+            GeneratedFile f = assetLibrary.fileForAsset(hit, dir, r.getCode(), id);
+
             log.info("  {} → asset {}", r.getCode(), ark.integration.byteplus.Json.str(hit, "Id"));
             r.setFileId(f.getId());
             r.setBlockedReason(null);

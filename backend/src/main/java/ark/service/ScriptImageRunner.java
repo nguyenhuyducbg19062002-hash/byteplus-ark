@@ -165,7 +165,7 @@ public class ScriptImageRunner {
                 Path dir = refDir(project).resolve(REVIEW_DIR);
                 Path target = unique(dir, r.getCode() + "_" + java.time.LocalDateTime.now().format(STAMP), ext(first.file()));
                 Files.move(first.file(), target, StandardCopyOption.REPLACE_EXISTING);
-                GeneratedFile f = fileLibrary.record(new SavedOutput(target, first.sourceUrl()), p.model.id(), p.prompt, null, null);
+                GeneratedFile f = fileLibrary.recordFor(project.getId(), new SavedOutput(target, first.sourceUrl()), p.model.id(), p.prompt, null);
                 Long oldPending = r.getPendingFileId();
                 update(refId, x -> {
                     x.setPendingFileId(f.getId());
@@ -272,7 +272,13 @@ public class ScriptImageRunner {
 
     /** Chép ảnh đã duyệt vào &lt;thư mục riêng&gt;/&lt;loại&gt;/&lt;MÃ&gt;.&lt;đuôi&gt; (tự tạo thư mục); file cũ trùng tên chuyển vào _cu/. */
     private Path copyToUserFolder(ScriptProject project, ScriptReference r, Path source) throws IOException {
-        Path dir = Path.of(project.getRefSaveDir()).resolve(kindFolder(r.getKind()));
+        Path base = Path.of(project.getRefSaveDir());
+        // Dự án khác cũng lưu vào thư mục này → tách thư mục con theo tên dự án để ảnh trùng mã không đè lên nhau
+        Path norm = base.toAbsolutePath().normalize();
+        boolean shared = projects.findAll().stream().anyMatch(o -> !o.getId().equals(project.getId()) && o.getRefSaveDir() != null
+                && "FOLDER".equals(o.getRefSaveMode()) && Path.of(o.getRefSaveDir()).toAbsolutePath().normalize().equals(norm));
+        if (shared) base = base.resolve(safeName(project.getName()));
+        Path dir = base.resolve(kindFolder(r.getKind()));
         Files.createDirectories(dir);
         Path target = dir.resolve(source.getFileName().toString());
         if (Files.exists(target)) {
@@ -280,6 +286,11 @@ public class ScriptImageRunner {
         }
         Files.copy(source, target);
         return target;
+    }
+
+    static String safeName(String s) {
+        String n = s == null ? "" : s.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        return n.isEmpty() ? "du-an" : n.length() > 80 ? n.substring(0, 80) : n;
     }
 
     /** Bỏ ảnh chờ duyệt (xoá file); mã giữ ảnh cũ nếu có. */

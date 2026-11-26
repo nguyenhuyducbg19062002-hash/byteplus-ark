@@ -179,6 +179,13 @@ public class ScriptRunner {
                 projects.save(fresh);
                 return;
             }
+            List<String> foreign = missingCodes.stream().filter(check::foreign).toList();
+            if (!foreign.isEmpty()) {
+                fresh.setPausedReason(blocked + " clip chờ ảnh: mã " + String.join(", ", foreign)
+                        + " đang trỏ tới ảnh của dự án khác – vào tab Ảnh tham chiếu chọn lại ảnh cho dự án này, rồi bấm Chạy.");
+                projects.save(fresh);
+                return;
+            }
             String list = String.join(", ", missingCodes);
             if (list.length() > 380) list = list.substring(0, 380) + "… (" + missingCodes.size() + " mã)";
             fresh.setPausedReason(blocked + " clip đang chờ ảnh tham chiếu – thiếu: " + list);
@@ -240,6 +247,24 @@ public class ScriptRunner {
         private final Map<Long, GeneratedFile> files;
         /** Nguồn gửi ảnh thẳng (BOTSD / 888API): chỉ cần có file, bỏ qua chặn Virtual Portrait. */
         private final boolean raw;
+        private ScriptProject project;
+        private boolean projectLoaded;
+
+        private ScriptProject project() {
+            if (!projectLoaded) {
+                projectLoaded = true;
+                project = refs.values().stream().findFirst().map(ScriptReference::getProjectId).flatMap(projects::findById).orElse(null);
+            }
+            return project;
+        }
+
+        /** Mã trỏ tới file của dự án khác (dữ liệu lạ – luồng bình thường đã chép ảnh thành file riêng của dự án). */
+        public boolean foreign(String code) {
+            ScriptReference r = refs.get(code);
+            if (r == null || r.getFileId() == null) return false;
+            GeneratedFile f = files.get(r.getFileId());
+            return f != null && f.getProjectId() != null && !f.getProjectId().equals(r.getProjectId());
+        }
 
         RefCheck(Map<String, ScriptReference> refs, boolean raw) {
             this.refs = refs;
@@ -268,34 +293,35 @@ public class ScriptRunner {
             return noFile.computeIfAbsent(code, k -> {
                 ScriptReference r = refs.get(k);
                 // Đang tạo / chờ duyệt ảnh mới → chưa dùng ảnh cũ
-                return r == null || r.getFileId() == null || r.isAwaitingImage() || !fileUsable(files.get(r.getFileId()));
+                return r == null || r.getFileId() == null || r.isAwaitingImage() || !fileUsable(files.get(r.getFileId())) || foreign(k);
             });
         }
 
         /** Thiếu ảnh hoặc ảnh đang bị chặn. */
         public boolean unusable(String code) {
-            return unusable.computeIfAbsent(code, k -> noFile(k) || isBlocked(refs.get(k), files.get(refs.get(k).getFileId())));
+            return unusable.computeIfAbsent(code, k -> noFile(k) || isBlocked(refs.get(k), files.get(refs.get(k).getFileId()), project()));
         }
 
         /** Như {@link ScriptRunner#isBlocked(ScriptReference)} nhưng dùng file đã tải sẵn. */
         public boolean blocked(ScriptReference r) {
             if (raw) return false;
-            return isBlocked(r, r.getFileId() == null ? null : files.get(r.getFileId()));
+            return isBlocked(r, r.getFileId() == null ? null : files.get(r.getFileId()), project());
         }
     }
 
     /** Ảnh bị chặn và chưa được đẩy Virtual Portrait (asset Active thì gửi asset:// → không còn bị chặn). */
     public boolean isBlocked(ScriptReference r) {
         if (r.getBlockedReason() == null) return false;
-        return isBlocked(r, r.getFileId() == null ? null : fileLibrary.existing(List.of(r.getFileId())).stream().findFirst().orElse(null));
+        return isBlocked(r, r.getFileId() == null ? null : fileLibrary.existing(List.of(r.getFileId())).stream().findFirst().orElse(null),
+                projects.findById(r.getProjectId()).orElse(null));
     }
 
-    private boolean isBlocked(ScriptReference r, GeneratedFile f) {
+    private boolean isBlocked(ScriptReference r, GeneratedFile f, ScriptProject project) {
         if (r.getBlockedReason() == null) return false;
         try {
             if (f == null) return true;
             if (f.getAssetId() != null && "Active".equals(f.getAssetStatus())) return false;
-            if (assetLibrary.cachedAssetFor(r.getCode()) != null) return false; // có asset VP trùng tên → gắn khi gửi clip
+            if (assetLibrary.cachedAssetFor(r.getCode(), project) != null) return false; // có asset VP trùng tên → gắn khi gửi clip
             if (r.getBlockedReason().startsWith(VP_FAILED)) return true;
             return !assetLibrary.canPush(f); // đẩy được VP (AK/SK + group + TOS / URL gốc) → app tự đẩy khi gửi clip
         } catch (Exception e) {
@@ -398,7 +424,7 @@ public class ScriptRunner {
             Path target = freeTarget(project, clip.getCode(), fmt == null ? "mp4" : fmt);
             say.accept("Đang tải video…");
             client.download(url, target);
-            GeneratedFile f = fileLibrary.record(new SavedOutput(target, url), model.id(), clip.getPrompt(), taskId, null);
+            GeneratedFile f = fileLibrary.recordFor(project.getId(), new SavedOutput(target, url), model.id(), clip.getPrompt(), taskId);
             assetHeals.remove(clipId);
             updateClip(clipId, c -> {
                 c.setStatus(ScriptClip.Status.SUCCEEDED);
@@ -477,8 +503,8 @@ public class ScriptRunner {
         Path target = freeTarget(project, clip.getCode(), "mp4");
         say.accept("Đang tải video từ BOTSD…");
         botsd.download(jobId, target);
-        GeneratedFile f = fileLibrary.record(new SavedOutput(target, null), "botsd-" + m.id(), clip.getPrompt(),
-                BOTSD_PREFIX + jobId, null);
+        GeneratedFile f = fileLibrary.recordFor(project.getId(), new SavedOutput(target, null), "botsd-" + m.id(), clip.getPrompt(),
+                BOTSD_PREFIX + jobId);
         updateClip(clipId, c -> {
             c.setStatus(ScriptClip.Status.SUCCEEDED);
             c.setFileId(f.getId());
@@ -701,8 +727,8 @@ public class ScriptRunner {
             if (url == null || e.status() < 400 || e.status() >= 500) throw e;
             client.download(taskId, null, target); // link hết hạn → lấy qua /v1/videos/{id}/content
         }
-        GeneratedFile f = fileLibrary.record(new SavedOutput(target, null), "888-" + m.id(), clip.getPrompt(),
-                API888_PREFIX + taskId, null);
+        GeneratedFile f = fileLibrary.recordFor(project.getId(), new SavedOutput(target, null), "888-" + m.id(), clip.getPrompt(),
+                API888_PREFIX + taskId);
         updateClip(clipId, c -> {
             c.setStatus(ScriptClip.Status.SUCCEEDED);
             c.setFileId(f.getId());
@@ -802,11 +828,11 @@ public class ScriptRunner {
     private GeneratedFile linkVpAsset(ScriptProject project, ScriptReference r, Consumer<String> say) {
         if (!assetLibrary.hasKeys()) return null;
         try {
-            Map<String, Object> hit = AssetLibraryService.findAssetFor(assetLibrary.activeAssetsCached(false), r.getCode());
+            Map<String, Object> hit = assetLibrary.findAssetFor(assetLibrary.activeAssetsCached(false), r.getCode(), project);
             if (hit == null) return null;
             GeneratedFile f;
             synchronized (this) {
-                f = assetLibrary.fileForAsset(hit, fileLibrary.root().resolve("assets").resolve(project.getFolder()), r.getCode());
+                f = assetLibrary.fileForAsset(hit, fileLibrary.root().resolve("assets").resolve(project.getFolder()), r.getCode(), project.getId());
                 ScriptReference fresh = references.findById(r.getId()).orElse(r);
                 fresh.setFileId(f.getId());
                 fresh.setBlockedReason(null);
@@ -843,7 +869,7 @@ public class ScriptRunner {
                 if (tos == null) {
                     say.accept("Đưa ảnh " + code + " lên Virtual Portrait (để BytePlus không chặn mặt người)…");
                     try {
-                        ok = assetLibrary.ensureActiveAsset(f, m -> say.accept(code + ": " + m), () -> cancelRequested.contains(clipId));
+                        ok = assetLibrary.ensureActiveAsset(f, project, m -> say.accept(code + ": " + m), () -> cancelRequested.contains(clipId));
                     } catch (IllegalStateException e) {
                         tos = assetLibrary.tosUnavailable();
                         if (tos == null) throw e;

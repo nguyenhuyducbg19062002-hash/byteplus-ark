@@ -118,6 +118,10 @@ public class ScriptProject {
         return isBotsd() || isApi888();
     }
 
+    /** Asset group Virtual Portrait riêng của dự án (app tự tạo khi đẩy ảnh lần đầu). null = chưa có. */
+    @Column(length = 80)
+    private String vpGroupId;
+
     /** Model 888API (vd seedance2.0-933-c5-fast). null = model mặc định. */
     @Column(length = 80)
     private String api888Model;

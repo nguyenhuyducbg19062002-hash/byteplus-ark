@@ -24,7 +24,8 @@ import lombok.Setter;
 @Entity
 @Table(name = "generated_file", indexes = {
         @Index(name = "ux_generated_file_path", columnList = "path", unique = true),
-        @Index(name = "ix_generated_file_asset", columnList = "assetId")
+        @Index(name = "ix_generated_file_asset", columnList = "assetId"),
+        @Index(name = "ix_generated_file_project", columnList = "projectId")
 })
 @Getter
 @Setter
@@ -69,6 +70,13 @@ public class GeneratedFile {
 
     @Column(length = 20)
     private String jobId;
+
+    /**
+     * Dự án kịch bản sở hữu file (ảnh tham chiếu, video clip). null = không thuộc dự án nào (ảnh / video tạo lẻ).
+     * Mỗi dự án chỉ dùng ảnh của chính nó – nhiều dự án trùng mã (CHAR_X_01) vẫn là ảnh khác nhau.
+     */
+    private Long projectId;
+
 
     @Column(nullable = false)
     private Instant createdAt;
