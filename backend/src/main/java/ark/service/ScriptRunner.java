@@ -644,6 +644,31 @@ public class ScriptRunner {
 
     private static final long API888_POLL_MS = 8_000;
 
+    /** 888API không đọc được link ảnh tham chiếu dù đã đổi link mới vài lần (task chưa tạo, không tốn tiền). */
+    static final class Api888RefUnreadable extends IllegalStateException {
+        Api888RefUnreadable(String m) {
+            super(m);
+        }
+    }
+
+    /** Số lần đổi link mới cho ảnh 888API không đọc được trước khi báo lỗi clip. */
+    static final int API888_REF_RELINKS = 2;
+
+    /** Lỗi "không đọc được ảnh tham chiếu" (REFERENCE_UNREADABLE / reference_prepare_failed): task chưa được tạo. */
+    static boolean refUnreadable(ark.integration.api888.Api888Exception e) {
+        String s = (e.code() + " " + e.getMessage()).toUpperCase(Locale.ROOT);
+        return s.contains("REFERENCE_UNREADABLE") || s.contains("REFERENCE_PREPARE_FAILED");
+    }
+
+    /** Ảnh thứ mấy bị lỗi (1-based), theo "第 4 份参考图片" / "image 4" / "reference 4"; null nếu không rõ. */
+    static Integer refIndex(String msg) {
+        if (msg == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("第\\s*(\\d+)\\s*(?:份|张|个)").matcher(msg);
+        if (m.find()) return Integer.parseInt(m.group(1));
+        m = java.util.regex.Pattern.compile("(?i)(?:image|reference|ref)\\s*#?\\s*(\\d+)").matcher(msg);
+        return m.find() ? Integer.parseInt(m.group(1)) : null;
+    }
+
     /** Lỗi khi gửi task 888API mà không chắc máy chủ đã nhận (không tự gửi lại – tránh trừ tiền 2 lần). */
     static final class Api888Uncertain extends IllegalStateException {
         Api888Uncertain(String m) {
@@ -657,9 +682,7 @@ public class ScriptRunner {
         ark.integration.api888.Api888Client client = api888.client();
         String taskId;
         if (clip.getTaskId() == null) {
-            Map<String, Object> body = api888Payload(clip, project, m, say);
-            say.accept("Đang gửi task lên 888API (" + m.id() + ", " + body.get("duration") + "s)…");
-            taskId = submitApi888(client, body);
+            taskId = submitApi888Relinking(client, clip, project, m, say);
             String t = API888_PREFIX + taskId;
             updateClip(clipId, c -> c.setTaskId(t));
         } else {
@@ -745,6 +768,45 @@ public class ScriptRunner {
         if (msg == null) msg = Json.str(task, "fail_reason");
         if (msg == null) msg = "task failed";
         return code != null && !msg.contains(code) ? code + " – " + msg : msg;
+    }
+
+    /**
+     * Gửi task; 888API không đọc được link ảnh (REFERENCE_UNREADABLE – chưa tạo task, không tốn tiền) → bỏ link cũ, tải ảnh
+     * đó lên lại lấy link mới, chờ rồi gửi lại (tài liệu: không thử lại liên tục cùng một link). Hết lượt → lỗi rõ ảnh nào.
+     */
+    private String submitApi888Relinking(ark.integration.api888.Api888Client client, ScriptClip clip, ScriptProject project,
+                                         Api888Service.Model m, Consumer<String> say) throws Exception {
+        List<String> codes = clip.refList();
+        for (int round = 0; ; round++) {
+            Map<String, Object> body = api888Payload(clip, project, m, say);
+            say.accept("Đang gửi task lên 888API (" + m.id() + ", " + body.get("duration") + "s)…");
+            try {
+                return submitApi888(client, body);
+            } catch (ark.integration.api888.Api888Exception e) {
+                if (!refUnreadable(e)) throw e;
+                Integer idx = refIndex(e.getMessage());
+                String which = idx != null && idx >= 1 && idx <= codes.size() ? "ảnh " + idx + " (mã " + codes.get(idx - 1) + ")" : "ảnh tham chiếu";
+                if (round >= API888_REF_RELINKS) {
+                    String host = "LITTERBOX".equals(api888.imageHost())
+                            ? "Litterbox đang chậm / bị chặn với máy chủ 888API – nên bật TOS (console.byteplus.com → Object Storage) rồi chọn “Nơi để ảnh: TOS” ở Cài đặt › 888API"
+                            : "kiểm tra ảnh còn mở được không, giảm số luồng song song, hoặc thử “Nơi để ảnh: Litterbox” ở Cài đặt › 888API";
+                    throw new Api888RefUnreadable("888API không đọc được " + which + " dù đã đổi link mới " + API888_REF_RELINKS
+                            + " lần (chưa tạo task, không tốn tiền) – " + host + ", rồi bấm Chạy lại. Chi tiết: " + e.getMessage());
+                }
+                // bỏ link cũ: ảnh được chỉ rõ, không rõ thì cả các ảnh của clip
+                Map<String, ScriptReference> refs = references.findByProjectIdOrderByKindAscCodeAsc(project.getId()).stream()
+                        .collect(Collectors.toMap(ScriptReference::getCode, r -> r, (a, b) -> a));
+                List<String> stale = idx != null && idx >= 1 && idx <= codes.size() ? List.of(codes.get(idx - 1)) : codes;
+                for (String c : stale) {
+                    ScriptReference r = refs.get(c);
+                    if (r != null && r.getFileId() != null) api888.forgetUrl(r.getFileId());
+                }
+                int wait = 15 * (round + 1);
+                say.accept("888API không đọc được " + which + " – tải ảnh lên lại lấy link mới, gửi lại sau " + wait + "s (lần " + (round + 1)
+                        + "/" + API888_REF_RELINKS + ")");
+                Thread.sleep(wait * 1000L);
+            }
+        }
     }
 
     /** Body POST /v1/videos: ảnh tham chiếu theo đúng thứ tự clip (Ảnh 1, 2…), là link HTTPS của ảnh trong dự án. */
@@ -947,6 +1009,10 @@ public class ScriptRunner {
         log.warn("Script clip {} error: {}", clipId, msg);
         if (e instanceof RefBlocked) {
             requeue(clipId, msg);
+            return;
+        }
+        if (e instanceof Api888RefUnreadable) {
+            finish(clipId, ScriptClip.Status.FAILED, msg, true);
             return;
         }
         if (e instanceof InterruptedException && cancelRequested.contains(clipId)) {

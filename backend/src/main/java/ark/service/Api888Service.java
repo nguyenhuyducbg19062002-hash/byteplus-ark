@@ -144,6 +144,15 @@ public class Api888Service {
     private final Map<String, HostedUrl> urls = new ConcurrentHashMap<>();
     private final Map<Long, Object> uploadLocks = new ConcurrentHashMap<>();
 
+    /** Bỏ link đã tải lên của ảnh này (888API không đọc được) → lần gửi sau tải lại, lấy link mới. */
+    public void forgetUrl(Long fileId) {
+        urls.keySet().removeIf(k -> k.startsWith(fileId + "|"));
+    }
+
+    public String imageHost() {
+        return config.api888ImageHost();
+    }
+
     /** Link HTTPS cho ảnh của dự án (thư mục tạm theo folder dự án), tải lên một lần dù nhiều clip cùng dùng. */
     public String imageUrl(GeneratedFile f, String projectFolder, Consumer<String> say) throws Exception {
         String host = config.api888ImageHost();
