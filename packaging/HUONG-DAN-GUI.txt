@@ -1,0 +1,23 @@
+﻿ARK STUDIO - tạo ảnh (Seedream) / video (Seedance) bằng BytePlus ModelArk
+=========================================================================
+
+TRONG THƯ MỤC NÀY
+  - ArkStudio-Setup-<phiên bản>.exe   : bộ cài app
+  - Huong dan su dung Ark Studio.pdf  : hướng dẫn đầy đủ, có ảnh giao diện (đọc mục 1, 2 trước)
+
+YÊU CẦU: Windows 10/11 64-bit, có Microsoft Edge (Windows có sẵn). KHÔNG cần cài Java.
+
+CÀI ĐẶT
+  1. Bấm đúp file ArkStudio-Setup-....exe, bấm Next đến hết (không cần quyền admin).
+     Nếu Windows hiện "Windows protected your PC": bấm "More info" > "Run anyway".
+  2. App tự mở. Lần sau mở bằng icon "Ark Studio" trên Desktop / Start Menu.
+  Cài bản mới: chạy file Setup mới đè lên, key và dữ liệu được giữ nguyên.
+
+LẦN ĐẦU MỞ
+  Vào Cài đặt (menu bên trái), dán API key ModelArk (console.byteplus.com > ModelArk > API keys).
+  Dùng Virtual Portrait thì nhập thêm Access Key / Secret Key + Project.
+  Bấm "Lưu cài đặt" rồi "Kiểm tra kết nối".
+
+BÁO LỖI
+  Gửi kèm file log: %USERPROFILE%\.byteplus-ark\logs\ark-studio.log
+  (dán đường dẫn này vào thanh địa chỉ của File Explorer để mở).

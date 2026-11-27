@@ -71,6 +71,19 @@ if ($iscc) {
     if ($LASTEXITCODE) { throw 'Inno Setup lỗi' }
     $setup = Join-Path $out "ArkStudio-Setup-$version.exe"
     Write-Host ("Đã tạo: $setup ({0:N0} MB)" -f ((Get-Item $setup).Length / 1MB)) -ForegroundColor Green
+    # Bộ gửi cho người dùng: chỉ cần file Setup + hướng dẫn PDF + hướng dẫn ngắn, kèm 1 file zip của thư mục này
+    Step 'Tạo thư mục gửi cho người dùng'
+    $send = Join-Path $out 'Gui-cho-nguoi-dung'
+    New-Item -ItemType Directory -Force $send | Out-Null
+    Copy-Item $setup $send
+    Copy-Item (Join-Path $root 'docs\HuongDan-ArkStudio.pdf') (Join-Path $send 'Huong dan su dung Ark Studio.pdf')
+    Copy-Item (Join-Path $PSScriptRoot 'HUONG-DAN-GUI.txt') (Join-Path $send 'DOC TRUOC - HUONG DAN.txt')
+    $sendZip = Join-Path $out "ArkStudio-$version-gui-nguoi-dung.zip"
+    if (Test-Path $sendZip) { Remove-Item $sendZip -Force }
+    Compress-Archive -Path (Join-Path $send '*') -DestinationPath $sendZip
+    Write-Host "Đã tạo: $send" -ForegroundColor Green
+    Get-ChildItem $send | ForEach-Object { Write-Host ("   {0} ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB)) }
+    Write-Host ("Đã nén: $sendZip ({0:N0} MB) – gửi file này (hoặc cả thư mục) cho người dùng" -f ((Get-Item $sendZip).Length / 1MB)) -ForegroundColor Green
 } else {
     Write-Host 'Bỏ qua: chưa cài Inno Setup 6 (winget install JRSoftware.InnoSetup) – vẫn có file zip ở trên.' -ForegroundColor Yellow
 }

@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hướng dẫn sử dụng Ark Studio</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+  :root { --ink: #1d2230; --muted: #5b6275; --line: #dfe2ea; --brand: #4f46e5; --brand2: #c026d3; --soft: #f6f7fa; --warn: #fff6e0; --warn-line: #f0c454; --tip: #eef8ef; --tip-line: #7cc68a; --bad: #fdecee; --bad-line: #e5838d; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: var(--ink); font: 10.5pt/1.55 "Segoe UI", Arial, sans-serif; }
+  h1, h2, h3 { line-height: 1.25; color: var(--ink); }
+  h2 { font-size: 18pt; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 3px solid var(--brand); break-after: avoid; }
+  h2 .num { color: var(--brand); margin-right: 6px; }
+  h3 { font-size: 12.5pt; margin: 16px 0 6px; break-after: avoid; }
+  p { margin: 0 0 8px; }
+  ul, ol { margin: 0 0 8px; padding-left: 20px; }
+  li { margin: 2px 0; }
+  code, .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 9.5pt; background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  b.ui { background: #eceafd; color: #3730a3; border-radius: 4px; padding: 0 5px; font-weight: 600; white-space: nowrap; }
+  section.chapter { break-before: page; }
+  figure { margin: 10px 0 14px; break-inside: avoid; }
+  figure img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+  figure.narrow img { width: 78%; margin: 0 auto; }
+  figure.small img { width: 56%; margin: 0 auto; }
+  figcaption { font-size: 9pt; color: var(--muted); margin-top: 4px; text-align: center; }
+  .note { border-left: 4px solid; border-radius: 6px; padding: 8px 12px; margin: 10px 0; break-inside: avoid; }
+  .note b.t { display: block; margin-bottom: 2px; }
+  .note.warn { background: var(--warn); border-color: var(--warn-line); }
+  .note.tip { background: var(--tip); border-color: var(--tip-line); }
+  .note.bad { background: var(--bad); border-color: var(--bad-line); }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 9.5pt; break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-weight: 600; }
+  .steps { counter-reset: s; list-style: none; padding: 0; }
+  .steps > li { counter-increment: s; position: relative; padding-left: 30px; margin: 6px 0; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 21px; height: 21px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 700; font-size: 9pt; display: grid; place-items: center; }
+  .tree { font-family: Consolas, monospace; font-size: 9.3pt; background: #1d2230; color: #e8ebf2; border-radius: 8px; padding: 12px 14px; line-height: 1.6; white-space: pre; break-inside: avoid; }
+  .tree .c { color: #9aa3b8; }
+  .tree .k { color: #c4b5fd; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  .refs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; break-inside: avoid; }
+  .refs figure { margin: 0; }
+  .pill { display: inline-block; border-radius: 10px; padding: 0 7px; font-size: 9pt; font-weight: 600; }
+  .p-done { background: #dff4e5; color: #1e6b35; } .p-ready { background: #e7eefc; color: #23468f; } .p-miss { background: #fde3e5; color: #a3121d; }
+  .p-run { background: #fff0cc; color: #8a5a00; } .p-err { background: #c0000f; color: #fff; } .p-rev { background: #eceafd; color: #3730a3; }
+  .cover { height: 263mm; display: flex; flex-direction: column; justify-content: space-between; padding: 18mm 6mm 6mm; background: linear-gradient(160deg, #3730a3 0%, #6d28d9 50%, #c026d3 100%); color: #fff; border-radius: 10px; margin: -2mm -2mm 0; }
+  .cover .logo { width: 70px; height: 70px; border-radius: 18px; background: #fff; color: #6d28d9; font: 800 44px/70px "Segoe UI", Arial; text-align: center; }
+  .cover h1 { color: #fff; font-size: 34pt; margin: 22px 0 6px; letter-spacing: -0.5px; }
+  .cover .sub { font-size: 14pt; opacity: .92; max-width: 150mm; }
+  .cover ul { font-size: 11pt; opacity: .95; padding-left: 18px; }
+  .cover .meta { font-size: 10pt; opacity: .85; }
+  .toc ol { padding-left: 18px; }
+  .toc li { margin: 5px 0; font-size: 11pt; }
+  .toc li span { color: var(--muted); font-size: 9.5pt; }
+  .checklist li { list-style: none; margin-left: -18px; }
+  .checklist li::before { content: "☐ "; color: var(--brand); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div>
+    <div class="logo">A</div>
+    <h1>Ark Studio</h1>
+    <div class="sub">Hướng dẫn sử dụng: tạo ảnh (Seedream) và video (Seedance) bằng BytePlus ModelArk, từ cài đặt đến chạy hàng loạt cả bộ phim</div>
+  </div>
+  <ul>
+    <li>Cài app, nhập API key ModelArk, Access Key / Secret Key</li>
+    <li>Tạo ảnh / video lẻ: chữ → ảnh, ảnh → video, tham chiếu đa phương tiện</li>
+    <li>Chuẩn bị thư mục dự án: file Excel, ảnh nhân vật, bối cảnh, đạo cụ</li>
+    <li>Kịch bản hàng loạt: chọn nguồn BytePlus / BOTSD / 888API, chạy, làm lại clip lỗi</li>
+    <li>Virtual Portrait, thư viện, theo dõi task, xử lý lỗi, lưu ý để không tốn tiền vô ích</li>
+  </ul>
+  <div class="meta">Phiên bản app 1.13 · Cập nhật 27/11/2026<br>Ảnh minh hoạ chụp từ giao diện thật của app (key và tài khoản trong ảnh là key mẫu, không dùng được).</div>
+</div>
+
+<!-- ============ TOC ============ -->
+<section class="chapter">
+  <h2>Mục lục</h2>
+  <div class="toc"><ol>
+    <li>Cài đặt và làm quen giao diện <span>· cài app, các menu bên trái, khay hệ thống</span></li>
+    <li>Cài đặt key lần đầu <span>· API key ModelArk, AK/SK, thư mục lưu</span></li>
+    <li>Tạo ảnh (Seedream) <span>· chữ → ảnh, ảnh tham chiếu</span></li>
+    <li>Tạo video (Seedance) <span>· 4 chế độ, tham số</span></li>
+    <li>Chuẩn bị thư mục dự án <span>· cấu trúc thư mục, file Excel, đặt tên ảnh</span></li>
+    <li>Kịch bản hàng loạt: mở dự án và cấu hình chạy <span>· nguồn BytePlus / BOTSD / 888API</span></li>
+    <li>Ảnh tham chiếu: gán, tạo bằng AI, duyệt</li>
+    <li>Chạy video hàng loạt, theo dõi, làm lại clip</li>
+    <li>Virtual Portrait, Thư viện, Task video, Tiến trình</li>
+    <li>Lỗi thường gặp và cách xử lý</li>
+    <li>Những điểm cần lưu ý · Câu hỏi thường gặp</li>
+  </ol></div>
+
+  <h3>Quy trình làm một bộ phim (tóm tắt)</h3>
+  <ol class="steps">
+    <li>Cài app, vào <b class="ui">Cài đặt</b> dán API key ModelArk (+ AK/SK nếu dùng Virtual Portrait), bấm <b class="ui">Kiểm tra kết nối</b> (mục 2).</li>
+    <li>Chuẩn bị thư mục dự án đúng cấu trúc: Excel danh sách cảnh, Excel prompt ảnh, thư mục ảnh (mục 5).</li>
+    <li>Vào <b class="ui">Kịch bản hàng loạt</b> → <b class="ui">Mở thư mục dự án</b> → <b class="ui">Quét</b> → <b class="ui">Mở dự án</b> (mục 6).</li>
+    <li>Mở <b class="ui">Cấu hình chạy</b>: chọn nguồn video, model, tỉ lệ, số clip chạy song song, bấm <b class="ui">Lưu cấu hình</b>.</li>
+    <li>Đủ ảnh tham chiếu cho mọi mã: gán ảnh có sẵn hoặc tạo bằng AI rồi <b class="ui">Duyệt</b> (mục 7).</li>
+    <li>Bấm <b class="ui">Chạy tất cả clip</b>, theo dõi; clip lỗi thì sửa prompt / <b class="ui">Làm lại các clip này</b> (mục 8).</li>
+    <li>Video thành phẩm nằm trong thư mục <code>Videos</code> của dự án, tên <code>001.mp4</code>, <code>002.mp4</code>… (làm lại thì thêm <code>_v2</code>).</li>
+  </ol>
+</section>
+
+<!-- ============ 1 ============ -->
+<section class="chapter">
+  <h2><span class="num">1</span>Cài đặt và làm quen giao diện</h2>
+  <h3>Cài app</h3>
+  <ul>
+    <li>Yêu cầu: <b>Windows 10/11 64-bit</b>, có <b>Microsoft Edge</b> (Windows có sẵn). <b>Không cần cài Java</b>: app đã kèm sẵn.</li>
+    <li>Chạy file <code>ArkStudio-Setup-1.13.exe</code>, bấm <i>Next</i> đến hết. Không cần quyền admin, app cài vào <code>%LOCALAPPDATA%\Programs\Ark Studio</code>.</li>
+    <li>Cuối bước cài, để tick <i>Mở Ark Studio</i>. Lần sau mở bằng biểu tượng <b>Ark Studio</b> trên Desktop hoặc Start Menu.</li>
+    <li>Nếu Windows hiện <i>"Windows protected your PC"</i>: bấm <b>More info</b> → <b>Run anyway</b>.</li>
+    <li>Cài bản mới đè lên bản cũ: chạy file Setup mới. Nếu app đang mở, bộ cài sẽ nhắc thoát app trước. Key và dữ liệu được giữ nguyên.</li>
+  </ul>
+  <div class="note tip"><b class="t">App mở trong cửa sổ riêng và có biểu tượng ở khay hệ thống</b>Khay hệ thống là góc phải thanh taskbar, có thể nằm trong mũi tên ^. Chuột phải biểu tượng Ark Studio để chọn <b>Mở Ark Studio</b>, <b>Mở thư mục lưu</b> hoặc <b>Thoát</b>. Nếu đóng cửa sổ khi đang tạo ảnh / video, app tiếp tục chạy nền và tự thoát khi xong.</div>
+  <figure>
+    <img src="img/04-image-empty.jpg">
+    <figcaption>Hình 1.1 · Màn hình chính. Menu bên trái; góc dưới trái là trạng thái key (đỏ = chưa có), công tắc Giáng sinh / sáng–tối và số phiên bản.</figcaption>
+  </figure>
+  <table>
+    <tr><th style="width:26%">Menu</th><th>Dùng để</th></tr>
+    <tr><td><b>Tạo ảnh</b></td><td>Tạo ảnh lẻ bằng Seedream: gõ prompt, có thể kèm ảnh tham chiếu.</td></tr>
+    <tr><td><b>Tạo video</b></td><td>Tạo video lẻ bằng Seedance: từ chữ, từ khung đầu / cuối, hoặc từ ảnh / video / audio tham chiếu.</td></tr>
+    <tr><td><b>Kịch bản hàng loạt</b></td><td>Làm cả bộ phim theo <b>thư mục dự án</b>: đọc Excel, gán / tạo ảnh tham chiếu, tự gửi từng clip, làm lại clip lỗi.</td></tr>
+    <tr><td><b>Virtual Portrait</b></td><td>Thư viện asset riêng trên BytePlus (cần AK/SK). Ảnh nhân vật đưa vào đây để Seedance không chặn mặt người.</td></tr>
+    <tr><td><b>Thư viện</b></td><td>Mọi ảnh / video đã tạo hoặc đã có trong thư mục dự án, lưu trên máy.</td></tr>
+    <tr><td><b>Task video</b></td><td>Các task Seedance trên BytePlus: trạng thái, lỗi, tải lại video.</td></tr>
+    <tr><td><b>Tiến trình</b></td><td>Lịch sử việc chạy nền (tạo ảnh, tạo video, đẩy asset, tải về) kèm log chi tiết.</td></tr>
+    <tr><td><b>Cài đặt</b></td><td>API key, AK/SK, thư mục lưu, tài khoản BOTSD, key 888API.</td></tr>
+  </table>
+  <div class="note tip"><b class="t">Giao diện Giáng sinh</b>App mặc định bật nền Giáng sinh có tuyết rơi. Gạt công tắc <b>🎄 Giáng sinh</b> ở góc dưới trái để tắt. Khi đã tắt, dòng <b>Giao diện sáng / tối</b> ngay dưới dùng để đổi màu nền. Ảnh trong tài liệu này chụp ở giao diện sáng.</div>
+</section>
+
+<!-- ============ 2 ============ -->
+<section class="chapter">
+  <h2><span class="num">2</span>Cài đặt key lần đầu</h2>
+  <p>Vào <b class="ui">Cài đặt</b> (menu dưới cùng bên trái). Trang có 4 khung: <b>Tạo ảnh / video</b>, <b>Virtual Portrait</b>, <b>BOTSD</b> và <b>888API</b>.</p>
+  <figure>
+    <img src="img/02-settings-filled.jpg">
+    <figcaption>Hình 2.1 · Đã dán key, bấm Kiểm tra kết nối: hai dòng xanh "API key" và "AK/SK" là key dùng được.</figcaption>
+  </figure>
+  <table>
+    <tr><th style="width:24%">Ô</th><th style="width:16%">Bắt buộc</th><th>Lấy ở đâu · ý nghĩa</th></tr>
+    <tr><td>API key</td><td><b>có</b></td><td>console.byteplus.com › <b>ModelArk</b> › <b>API keys</b>. Dùng để tạo ảnh, tạo video, AI viết prompt và phân tích lỗi.</td></tr>
+    <tr><td>Base URL</td><td>giữ nguyên</td><td>Mặc định <code>https://ark.ap-southeast.bytepluses.com/api/v3</code>.</td></tr>
+    <tr><td>Thư mục lưu</td><td>tuỳ chọn</td><td>Nơi lưu ảnh / video. Mặc định <code>Documents\BytePlus Ark Studio</code>. Ảnh vào <code>images\</code>, video lẻ vào <code>videos\</code>.</td></tr>
+    <tr><td>Access Key ID / Secret Access Key</td><td>chỉ khi dùng Virtual Portrait</td><td>console › <b>IAM</b> › <b>API access key</b>. Nên tạo IAM user chỉ có quyền <code>ark:*Asset*</code>.</td></tr>
+    <tr><td>Project</td><td>khi có AK/SK</td><td>Asset tách theo project, phải <b>trùng project của API key</b> tạo video (vd <code>default</code>).</td></tr>
+  </table>
+  <ol class="steps">
+    <li>Dán key vào ô. Ô key chỉ hiện bản che (<code>…</code>). Nếu không đổi key thì để nguyên.</li>
+    <li>Bấm <b class="ui">Lưu cài đặt</b>, rồi bấm <b class="ui">Kiểm tra kết nối</b>. Nút này tự lưu trước khi kiểm tra.</li>
+    <li>Nhãn ở góc dưới trái chuyển sang xanh: <span class="pill p-done">API key</span> <span class="pill p-done">AK/SK</span>.</li>
+  </ol>
+  <div class="note warn"><b class="t">Key chỉ nằm trên máy này</b>Key lưu trong <code>%USERPROFILE%\.byteplus-ark\config.properties</code>, không lưu vào dữ liệu dự án và không hiện ra giao diện. Không gửi file này cho người khác. Mỗi người dùng key của chính mình.</div>
+</section>
+
+<section>
+  <h3>Nguồn video thứ hai và thứ ba: BOTSD, 888API (tuỳ chọn)</h3>
+  <p>Hai nguồn này chỉ dùng trong <b>Kịch bản hàng loạt</b>, chọn ở <b class="ui">Cấu hình chạy</b>. Nếu chỉ dùng BytePlus thì bỏ qua phần này.</p>
+  <figure class="narrow">
+    <img src="img/03-settings-providers.jpg">
+    <figcaption>Hình 2.2 · Khung BOTSD (đăng nhập bằng tài khoản botsd.pro) và 888API (dán key sk-…).</figcaption>
+  </figure>
+  <table>
+    <tr><th style="width:18%">Nguồn</th><th>Cách thêm</th><th style="width:34%">Tính tiền</th></tr>
+    <tr><td><b>BOTSD</b></td><td>Nhập <i>Tên đăng nhập</i> + <i>Mật khẩu</i> → <b class="ui">Đăng nhập</b>. Bấm <b class="ui">Xem số dư</b> để thấy Point và bảng giá. Phiên hết hạn thì app tự đăng nhập lại.</td><td>Trừ Point BOTSD. Clip làm tròn lên 5 / 10 / 15 / 30 giây.</td></tr>
+    <tr><td><b>888API</b></td><td>Tạo key ở 888api.xin › Bảng điều khiển › 令牌, bật quyền các model video. Dán key → <b class="ui">Lưu</b>. Chọn <i>Chỗ để ảnh tham chiếu tạm</i>: <b>TOS BytePlus</b> (riêng tư, cần AK/SK và đã bật TOS) hoặc <b>Litterbox</b> (công khai, tự xoá sau 72 giờ).</td><td>Trừ số dư key 888API (giá theo model, ghi trong danh sách model).</td></tr>
+  </table>
+  <div class="note tip"><b class="t">Vẫn cần API key BytePlus</b>Dù chạy video bằng BOTSD hay 888API, việc <b>tạo ảnh tham chiếu bằng AI</b>, <b>AI viết prompt ảnh</b> và <b>phân tích vì sao bị chặn</b> vẫn chạy bằng BytePlus. Không có API key BytePlus thì các nút này bị mờ.</div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section class="chapter">
+  <h2><span class="num">3</span>Tạo ảnh (Seedream)</h2>
+  <ol class="steps">
+    <li>Vào <b class="ui">Tạo ảnh</b>, chọn <b>Model</b> (Seedream 4.0 – 5.x).</li>
+    <li>Gõ <b>Prompt</b> mô tả ảnh (tối đa 4000 ký tự, viết tiếng Anh cho kết quả ổn định nhất).</li>
+    <li><b>Ảnh tham chiếu</b>: để trống = tạo từ chữ. Muốn giữ nhân vật / sản phẩm thì thêm ảnh bằng <b class="ui">Tải file</b>, <b class="ui">Thư viện</b> hoặc <b class="ui">URL / asset://</b>.</li>
+    <li><b>Kích thước</b>: chọn 1K / 2K / 4K hoặc gõ <code>RỘNGxCAO</code>, vd <code>2560x1440</code>. <b>Định dạng</b>: JPEG / PNG.</li>
+    <li>Model có hỗ trợ thì bật <b>Chuỗi ảnh liên quan</b> để tạo nhiều ảnh cùng bộ (tham chiếu + kết quả ≤ 15).</li>
+    <li>Bấm <b class="ui">Tạo ảnh</b>. Kết quả và log hiện ở khung bên phải.</li>
+  </ol>
+  <figure>
+    <img src="img/05-image-result.jpg">
+    <figcaption>Hình 3.1 · Bấm Tạo ảnh: khung phải hiện trạng thái, log và ảnh vừa tạo.</figcaption>
+  </figure>
+  <ul>
+    <li>Ảnh lưu ở <code>&lt;Thư mục lưu&gt;\images\IMG_&lt;ngày&gt;_&lt;giờ&gt;_1.jpeg</code> và đồng thời có trong <b class="ui">Thư viện</b>.</li>
+    <li>Ảnh Seedream 5.0 tạo từ chữ được Seedance 2.x tin cậy 30 ngày khi làm ảnh đầu vào video, nên ít bị chặn mặt người hơn ảnh chụp thật.</li>
+    <li>Tick <i>Gắn watermark "AI generated"</i> nếu cần dấu nhận biết ảnh AI.</li>
+  </ul>
+</section>
+
+<!-- ============ 4 ============ -->
+<section class="chapter">
+  <h2><span class="num">4</span>Tạo video (Seedance)</h2>
+  <div class="two">
+    <figure>
+      <img src="img/06-video-modes.jpg">
+      <figcaption>Hình 4.1 · Bốn chế độ tạo video.</figcaption>
+    </figure>
+    <figure>
+      <img src="img/07-video-omni.jpg">
+      <figcaption>Hình 4.2 · Chế độ tham chiếu đa phương tiện: thêm ảnh / video / audio.</figcaption>
+    </figure>
+  </div>
+  <table>
+    <tr><th style="width:30%">Chế độ</th><th>Khi nào dùng</th></tr>
+    <tr><td>Văn bản → Video</td><td>Chỉ có prompt.</td></tr>
+    <tr><td>Ảnh khung đầu → Video</td><td>Video bắt đầu đúng từ một ảnh.</td></tr>
+    <tr><td>Khung đầu + khung cuối → Video</td><td>Cho cả ảnh mở đầu và ảnh kết thúc (chỉ model hỗ trợ).</td></tr>
+    <tr><td>Tham chiếu đa phương tiện</td><td>Giữ nhân vật / bối cảnh / trang phục từ nhiều ảnh, kèm video / audio tham chiếu. Trong prompt gọi <code>Image 1</code>, <code>Image 2</code>, <code>Video 1</code>… theo đúng thứ tự đã thêm.</td></tr>
+  </table>
+  <ul>
+    <li><b>Độ phân giải</b>, <b>Tỉ lệ khung</b> (<code>adaptive</code> = theo ảnh), <b>Thời lượng</b>: khoảng giây cho phép hiện ngay dưới ô; <code>-1</code> = để model tự chọn (nếu model hỗ trợ).</li>
+    <li><b>Tạo âm thanh</b>: video có tiếng (thoại viết trong prompt). <b>Trả ảnh khung cuối</b>: lưu thêm ảnh khung cuối để nối cảnh sau.</li>
+    <li>Model đời 1.x có thêm <b>Seed</b> và <b>Cố định camera</b>; Seedance 2.5 có thêm định dạng <b>MP4 / MOV</b>.</li>
+    <li>Bấm <b class="ui">Tạo video</b>. Video thường xong sau 1–5 phút, lưu ở <code>&lt;Thư mục lưu&gt;\videos\&lt;task id&gt;.mp4</code>.</li>
+  </ul>
+  <figure>
+    <img src="img/08-video-running.jpg">
+    <figcaption>Hình 4.3 · Đang chạy: log ghi việc đẩy ảnh nhân vật lên Virtual Portrait, mã task và trạng thái queued → running.</figcaption>
+  </figure>
+  <div class="note warn"><b class="t">Seedance 2.x không nhận ảnh mặt người thật</b>Ảnh chụp người thật sẽ bị chặn (<code>InputImageSensitiveContentDetected</code>). Hãy dùng ảnh do Seedream 5.0 tạo, hoặc đưa ảnh nhân vật vào <b>Virtual Portrait</b> rồi dùng <code>asset://</code>. Nếu đã bật <i>Tự đẩy</i> (nhãn <b>Tự đẩy VP</b> ở góc dưới trái) thì app tự làm việc này.</div>
+  <div class="note tip"><b class="t">Đóng cửa sổ không mất video</b>Bấm <b class="ui">Dừng theo dõi</b> chỉ ngừng xem log; task vẫn chạy trên BytePlus. Video tải lại được ở <b class="ui">Task video</b> trong 24 giờ.</div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section class="chapter">
+  <h2><span class="num">5</span>Chuẩn bị thư mục dự án</h2>
+  <p>Mỗi bộ phim là <b>một thư mục</b>. App tự nhận file Excel theo <b>tên cột</b> và nhận thư mục con theo tên. File Excel <b>chỉ được đọc, không bị sửa</b>.</p>
+  <div class="tree"><span class="k">KET QUA - IDE 21/</span>                  <span class="c">← thư mục dự án (tên tuỳ ý)</span>
+├─ <span class="k">all-video-prompts.xlsx</span>          <span class="c">← BẮT BUỘC: danh sách cảnh (prompt video)</span>
+├─ <span class="k">reference-prompts.xlsx</span>          <span class="c">← prompt để AI tạo ảnh tham chiếu (nên có)</span>
+├─ voice-overlay.xlsx               <span class="c">← thoại (tuỳ chọn)</span>
+├─ Kịch bản.docx, *.txt             <span class="c">← tham khảo, app không đọc</span>
+├─ <span class="k">Ảnh tham chiếu/</span>                 <span class="c">← ảnh đang dùng, tên file = mã</span>
+│   ├─ CHAR-DANIEL-1.jpg
+│   ├─ LOC-10.jpg
+│   ├─ PROP-3.jpg
+│   └─ _cu/                         <span class="c">← app tự tạo, cất ảnh cũ khi duyệt ảnh mới</span>
+├─ <span class="k">Ảnh chờ duyệt/</span>                  <span class="c">← ảnh AI mới tạo, chờ bạn Duyệt</span>
+└─ <span class="k">Videos/</span>                         <span class="c">← video thành phẩm: 001.mp4, 002.mp4 …</span></div>
+  <div class="note tip"><b class="t">Thiếu thư mục cũng không sao</b><code>Ảnh tham chiếu</code>, <code>Ảnh chờ duyệt</code>, <code>Videos</code> chưa có thì app tự tạo khi cần. Tên thư mục viết không dấu (<code>Anh tham chieu</code>) hoặc tiếng Anh (<code>reference</code>, <code>pending</code>, <code>video</code>) cũng nhận. Nếu có nhiều file Excel cùng loại, app cho chọn file khi quét.</div>
+
+  <h3>File danh sách cảnh (vd <code>all-video-prompts.xlsx</code>)</h3>
+  <p>Mỗi dòng là <b>một cảnh</b> (một clip video). App cần ít nhất cột <b>STT segment</b> và <b>Reference IDs</b>.</p>
+  <table>
+    <tr><th style="width:27%">Tên cột</th><th style="width:14%">Bắt buộc</th><th>Nội dung · ví dụ</th></tr>
+    <tr><td>STT segment</td><td><b>có</b></td><td>Số cảnh: <code>1</code>, <code>2</code>… Video lưu thành <code>001.mp4</code>, <code>002.mp4</code>.</td></tr>
+    <tr><td>Nội dung prompt của segment</td><td><b>có</b></td><td>Prompt video tiếng Anh, gửi nguyên văn. Gọi ảnh bằng <code>@MÃ</code>, vd <code>@CHAR-BITSY-1 = Bitsy (woman, 60 years old)</code>.</td></tr>
+    <tr><td>Reference IDs</td><td><b>có</b></td><td>Các mã ảnh dùng trong cảnh, cách nhau bằng <code>;</code>. Thứ tự ở đây là thứ tự Ảnh 1, Ảnh 2… gửi đi.<br><code>CHAR-BITSY-1; CHAR-CELESTE-1; LOC-10; PROP-3</code></td></tr>
+    <tr><td>Thời lượng (giây)</td><td>nên có</td><td><code>15</code>, <code>13</code>… Ngoài khoảng model nhận thì app kẹp / làm tròn (xem mục 6).</td></tr>
+    <tr><td>Tóm tắt segment (tiếng Việt)</td><td>tuỳ chọn</td><td>Hiện trong danh sách clip cho dễ đọc.</td></tr>
+    <tr><td>Chú thích ID nhân vật</td><td>tuỳ chọn</td><td><code>CHAR-BITSY-1 = Bitsy Hollister · trang phục: …</code></td></tr>
+  </table>
+  <h3>File prompt ảnh tham chiếu (vd <code>reference-prompts.xlsx</code>)</h3>
+  <table>
+    <tr><th style="width:27%">Tên cột</th><th style="width:14%">Bắt buộc</th><th>Nội dung · ví dụ</th></tr>
+    <tr><td>Reference ID</td><td><b>có</b></td><td><code>CHAR-DANIEL-1</code>, <code>LOC-10</code>, <code>PROP-3</code></td></tr>
+    <tr><td>Prompt tạo reference</td><td><b>có</b></td><td>Prompt để Seedream vẽ ảnh tham chiếu cho mã đó. Sửa được trong app (nút <b class="ui">Prompt</b>).</td></tr>
+    <tr><td>Chú thích ID nhân vật</td><td>tuỳ chọn</td><td>Tên / mô tả ngắn nhân vật, trang phục.</td></tr>
+  </table>
+  <div class="note tip"><b class="t">File Excel kiểu cũ vẫn dùng được</b>File "KICH BAN SEEDANCE …xlsx" có sheet <b>KỊCH BẢN</b> (cột MÃ) và các sheet <b>NHÂN VẬT / BỐI CẢNH / ĐẠO CỤ</b> (mã <code>CHAR_…</code>, <code>LOC_…</code>, <code>PROP_…</code>) nhập bằng nút <b class="ui">Nhập Excel (cách cũ)</b>. Video của dự án kiểu này lưu ở <code>&lt;Thư mục lưu&gt;\videos\&lt;dự án&gt;</code>.</div>
+</section>
+
+<section>
+  <h3>Đặt tên ảnh tham chiếu</h3>
+  <p>Tên file ảnh <b>chính là mã</b>. App đọc tên file để biết ảnh thuộc mã nào.</p>
+  <table>
+    <tr><th style="width:18%">Loại</th><th style="width:30%">Mẫu tên</th><th>Ý nghĩa</th></tr>
+    <tr><td>Nhân vật</td><td><code>CHAR-TÊN-số</code></td><td><code>CHAR-DANIEL-1</code>, <code>CHAR-DANIEL-2</code> = cùng nhân vật Daniel, 2 bộ trang phục. Bộ đầu được dùng làm tham chiếu khuôn mặt cho các bộ sau.</td></tr>
+    <tr><td>Bối cảnh</td><td><code>LOC-số</code></td><td><code>LOC-10</code> = phòng tiệc Crown Room.</td></tr>
+    <tr><td>Đạo cụ</td><td><code>PROP-số</code></td><td><code>PROP-3</code> = chiếc trâm sapphire.</td></tr>
+  </table>
+  <ul>
+    <li>Đuôi file: <code>.jpg</code>, <code>.jpeg</code>, <code>.png</code>, <code>.webp</code>, <code>.bmp</code>.</li>
+    <li>Viết đúng như trong cột Reference IDs. Ảnh đặt <b>ngay trong</b> <code>Ảnh tham chiếu/</code>; ảnh trong <code>_cu/</code> bị bỏ qua.</li>
+    <li>Có nhiều ảnh khớp cùng một mã thì app lấy ảnh <b>mới nhất</b>.</li>
+  </ul>
+  <h3>Ảnh tham chiếu trông như thế nào</h3>
+  <p>Ảnh nhân vật tốt nhất là <b>tấm "character sheet"</b>: toàn thân, cận mặt và chi tiết trang phục, nền trơn, ánh sáng tự nhiên. Ảnh bối cảnh chụp rộng cả không gian. Ảnh đạo cụ chụp rõ vật thể.</p>
+  <div class="refs">
+    <figure><img src="img/ref-CHAR-DANIEL-2.jpg"><figcaption>CHAR-DANIEL-2 · nhân vật</figcaption></figure>
+    <figure><img src="img/ref-CHAR-MARGARET-1.jpg"><figcaption>CHAR-MARGARET-1 · nhân vật</figcaption></figure>
+    <figure><img src="img/ref-LOC-10.jpg"><figcaption>LOC-10 · bối cảnh</figcaption></figure>
+    <figure><img src="img/ref-PROP-3.jpg"><figcaption>PROP-3 · đạo cụ</figcaption></figure>
+  </div>
+  <div class="note warn"><b class="t">Mặt người và giới hạn số ảnh</b>Với nguồn BytePlus, ảnh nhân vật giống người thật phải đi qua <b>Virtual Portrait</b>; app tự đẩy trước khi gửi clip. Mỗi model nhận tối đa một số ảnh mỗi clip. Clip vượt mức sẽ có dòng đỏ <i>"N ảnh &gt; tối đa …"</i>; khi đó đổi model hoặc bớt ảnh.</div>
+</section>
+
+<!-- ============ 6 ============ -->
+<section class="chapter">
+  <h2><span class="num">6</span>Kịch bản hàng loạt: mở dự án và cấu hình chạy</h2>
+  <ol class="steps">
+    <li>Vào <b class="ui">Kịch bản hàng loạt</b> → bấm <b class="ui">Mở thư mục dự án</b>.</li>
+    <li>Bấm <b class="ui">Chọn thư mục…</b> (hoặc dán đường dẫn) → <b class="ui">Quét</b>. App báo đã tìm thấy file nào.</li>
+    <li>Kiểm tra: <i>Danh sách cảnh</i> phải có dấu ✓. Nếu báo ✗ thì Excel thiếu cột "STT segment" + "Reference IDs".</li>
+    <li>Bấm <b class="ui">Mở dự án</b>. Lần sau dự án nằm trong ô chọn dự án và mục <i>Dự án gần đây</i>.</li>
+  </ol>
+  <figure class="narrow">
+    <img src="img/10-folder-scan.jpg">
+    <figcaption>Hình 6.1 · Kết quả quét: file cảnh, file prompt ảnh, file thoại, số ảnh tham chiếu, ảnh chờ duyệt, video đã có.</figcaption>
+  </figure>
+  <figure>
+    <img src="img/11-project-top.jpg">
+    <figcaption>Hình 6.2 · Dự án đã mở: đường dẫn thư mục, các ô đếm, nút điều khiển, Cấu hình chạy và danh sách clip.</figcaption>
+  </figure>
+  <table>
+    <tr><th style="width:22%">Ô đếm</th><th>Ý nghĩa (bấm vào ô để lọc danh sách)</th></tr>
+    <tr><td>Tất cả</td><td>Tổng số clip (cảnh) trong Excel.</td></tr>
+    <tr><td>Sẵn sàng</td><td>Đủ ảnh, chờ chạy.</td></tr>
+    <tr><td>Thiếu ảnh</td><td>Clip có mã chưa gán ảnh. Clip này sẽ không được gửi cho đến khi đủ ảnh.</td></tr>
+    <tr><td>Đang chạy / Xong / Lỗi</td><td>Đang tạo trên máy chủ / đã có video / thất bại sau đủ số lần thử.</td></tr>
+    <tr><td>Ảnh thiếu / Chờ duyệt</td><td>Số <b>mã ảnh</b> chưa có ảnh / số ảnh AI đang chờ bạn duyệt.</td></tr>
+  </table>
+  <div class="note tip"><b class="t">Cảnh đã có video thì không chạy lại</b>Cảnh có sẵn video trong <code>Videos/</code> (<code>001.mp4</code>, <code>001_v2.mp4</code>…) được tính là <span class="pill p-done">Xong</span>. Nếu bạn sửa Excel hoặc chép thêm ảnh / video vào thư mục, bấm <b class="ui">Quét lại</b> (chỉ bấm được khi dự án đang dừng).</div>
+</section>
+
+<section>
+  <h3>Cấu hình chạy</h3>
+  <p>Bấm dòng <b class="ui">Cấu hình chạy</b> để mở. Chỉnh xong nhớ bấm <b class="ui">Lưu cấu hình</b>.</p>
+  <figure>
+    <img src="img/12-config.jpg">
+    <figcaption>Hình 6.3 · Cấu hình chạy. Dòng xanh "Theo BytePlus · …: vừa 150/150 clip" cho biết mọi clip chưa xong đều hợp với model đã chọn.</figcaption>
+  </figure>
+  <table>
+    <tr><th style="width:24%">Mục</th><th>Giải thích</th></tr>
+    <tr><td>Nguồn tạo video</td><td><b>BytePlus</b> (mặc định, có "Tạo âm thanh", tỉ lệ <code>adaptive</code>, dừng clip là huỷ hẳn task) · <b>BOTSD</b> · <b>888API</b>. Hai nguồn sau không có lệnh huỷ: dừng chỉ là ngừng theo dõi, tiền đã trừ.</td></tr>
+    <tr><td>Model / Độ phân giải / Tỉ lệ</td><td>Model video và chất lượng. Đổi model thì cảnh báo của từng clip được tính lại ngay, kể cả trước khi Lưu.</td></tr>
+    <tr><td>Chạy song song</td><td>Số clip gửi cùng lúc (1–50). Nên để 3. Đặt nhiều quá thì máy chủ dễ trả lỗi 429; khi đó app tự chờ rồi gửi lại.</td></tr>
+    <tr><td>Số lần thử</td><td>Số lần thử lại một clip khi gặp lỗi tạm thời (mạng, máy chủ bận).</td></tr>
+    <tr><td>Model tạo ảnh tham chiếu / Kích thước ảnh</td><td>Seedream dùng khi bấm "Tạo bằng AI".</td></tr>
+    <tr><td>Lưu ảnh đã duyệt</td><td>Với dự án theo thư mục, ảnh duyệt vào <code>Ảnh tham chiếu/</code>. Có thể chọn chép thêm vào thư mục riêng (tự tạo <code>NHAN VAT / BOI CANH / DAO CU</code>).</td></tr>
+    <tr><td>Tạo âm thanh</td><td>Chỉ BytePlus. Video có thoại theo prompt.</td></tr>
+    <tr><td>Tự duyệt ảnh AI</td><td>Bỏ bước chờ duyệt: ảnh AI dùng luôn. Tiết kiệm thời gian nhưng không kiểm tra được ảnh trước khi tốn tiền video.</td></tr>
+  </table>
+  <h3>Thời lượng clip theo từng nguồn</h3>
+  <ul>
+    <li><b>BytePlus:</b> clip ngoài khoảng model nhận (vd 4–15s) được kẹp về mức gần nhất.</li>
+    <li><b>BOTSD:</b> chỉ nhận 5 / 10 / 15 / 30s. Clip lẻ được làm tròn lên (12s → 15s), clip dài hơn mức tối đa bị cắt.</li>
+    <li><b>888API:</b> theo từng model (ghi trong danh sách model).</li>
+  </ul>
+  <p>Ở cột <i>Cảnh</i>, clip bị cắt có dòng đỏ <i>"gửi 15s – bị cắt 3s"</i>. Hãy xem dòng này trước khi chạy.</p>
+</section>
+
+<!-- ============ 7 ============ -->
+<section class="chapter">
+  <h2><span class="num">7</span>Ảnh tham chiếu: gán, tạo bằng AI, duyệt</h2>
+  <p>Mở tab <b class="ui">Ảnh tham chiếu</b>. Số đỏ trên tab là số mã còn thiếu ảnh. Dải tổng quan liệt kê mọi mã theo loại (Nhân vật / Bối cảnh / Đạo cụ). Mã đỏ là mã thiếu; bấm vào một mã để nhảy tới thẻ ảnh của mã đó.</p>
+  <figure>
+    <img src="img/15-refs.jpg">
+    <figcaption>Hình 7.1 · Tab Ảnh tham chiếu: hàng nút trên cùng, dải tổng quan và thẻ ảnh của từng mã (loại · số clip dùng).</figcaption>
+  </figure>
+  <figure>
+    <img src="img/16-refs-missing.jpg">
+    <figcaption>Hình 7.2 · Lọc "Thiếu": thẻ viền đỏ "Chưa có ảnh" (ở đây là LOC-18 và PROP-5).</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h3>Các cách có ảnh cho một mã</h3>
+  <table>
+    <tr><th style="width:30%">Nút</th><th>Tác dụng</th></tr>
+    <tr><td><b class="ui">Tải lên</b> / <b class="ui">Thư viện</b></td><td>Gán ảnh cho đúng thẻ đó: chọn file trên máy hoặc ảnh đã có trong Thư viện.</td></tr>
+    <tr><td><b class="ui">Tự ghép theo tên file</b></td><td>Gán hàng loạt ảnh có tên đúng mã (chỉ tìm ảnh của dự án này).</td></tr>
+    <tr><td><b class="ui">Nhập thư mục ảnh</b></td><td>Chọn một thư mục ảnh, app ghép theo tên rồi chép vào dự án.</td></tr>
+    <tr><td><b class="ui">Tạo AI</b> / <b class="ui">Tạo lại AI</b></td><td>Seedream vẽ ảnh cho mã đó theo prompt ảnh (tốn tiền tạo ảnh).</td></tr>
+    <tr><td><b class="ui">Tạo bằng AI các ảnh còn thiếu (N)</b></td><td>Tạo một lượt cho mọi mã còn thiếu.</td></tr>
+    <tr><td><b class="ui">AI viết prompt ảnh (N)</b></td><td>Mã chưa có prompt thì AI viết prompt từ mô tả trong Excel.</td></tr>
+    <tr><td><b class="ui">Prompt</b></td><td>Xem / sửa prompt ảnh. <b class="ui">Lưu &amp; tạo ảnh</b> để tạo luôn. Prompt đã sửa tay sẽ không bị ghi đè khi quét lại Excel.</td></tr>
+    <tr><td><b class="ui">Đẩy N ảnh nhân vật lên Virtual Portrait</b></td><td>(BytePlus) Đẩy trước ảnh nhân vật cho nhanh. Nếu không bấm, app cũng tự đẩy trước khi gửi clip.</td></tr>
+    <tr><td><b class="ui">Tải hết ảnh về (.zip)</b></td><td>Gom toàn bộ ảnh tham chiếu thành một file zip.</td></tr>
+  </table>
+  <figure class="narrow">
+    <img src="img/18-ref-prompt.jpg">
+    <figcaption>Hình 7.3 · Hộp Prompt ảnh của một mã nhân vật: sửa, AI viết lại, Lưu hoặc Lưu &amp; tạo ảnh.</figcaption>
+  </figure>
+  <h3>Duyệt ảnh AI</h3>
+  <ol class="steps">
+    <li>Ảnh AI vừa tạo vào thư mục <code>Ảnh chờ duyệt/</code>. Thẻ có viền tím và 3 nút: <b class="ui">Duyệt</b>, <b class="ui">Tạo lại</b>, <b class="ui">Bỏ ảnh mới</b>. Nếu mã đã có ảnh, góc thẻ hiện thêm "ảnh cũ" để so sánh.</li>
+    <li><b class="ui">Duyệt</b>: ảnh được đổi tên thành <code>MÃ.jpeg</code> trong <code>Ảnh tham chiếu/</code>; ảnh cũ chuyển vào <code>_cu/</code>. Muốn duyệt hết một lần thì bấm <b class="ui">Duyệt tất cả (N)</b>.</li>
+    <li>Clip dùng mã đang chờ duyệt sẽ đợi đến khi ảnh được duyệt rồi mới chạy.</li>
+  </ol>
+  <div class="note warn"><b class="t">Duyệt kỹ ảnh nhân vật</b>Ảnh nhân vật sai mặt, sai trang phục hay thừa người thì mọi clip dùng mã đó đều sai và vẫn tốn tiền video. Kiểm tra kỹ trước khi duyệt, nhất là bộ trang phục đầu tiên (các bộ sau lấy mặt theo bộ này).</div>
+</section>
+
+<!-- ============ 8 ============ -->
+<section class="chapter">
+  <h2><span class="num">8</span>Chạy video hàng loạt, theo dõi, làm lại clip</h2>
+  <h3>Các nút điều khiển (thanh trên cùng, luôn đứng yên khi cuộn)</h3>
+  <table>
+    <tr><th style="width:34%">Nút</th><th>Tác dụng</th></tr>
+    <tr><td><b class="ui">Tạo ảnh thiếu + chạy video</b></td><td>Hiện khi còn mã thiếu ảnh: tạo ảnh AI cho mã thiếu, rồi chạy video.</td></tr>
+    <tr><td><b class="ui">Chạy tất cả clip</b></td><td>Gửi mọi clip đang chờ của cả kịch bản, theo thứ tự, song song tối đa N.</td></tr>
+    <tr><td><b class="ui">Tạm dừng</b></td><td>Ngừng gửi clip mới. Clip đang tạo vẫn chạy cho xong.</td></tr>
+    <tr><td><b class="ui">Chạy lại clip lỗi (N)</b></td><td>Đưa các clip lỗi / đã huỷ về hàng chờ và chạy lại.</td></tr>
+    <tr><td><b class="ui">Tải về máy</b></td><td>Tải dạng zip: tất cả video đã xong, tất cả ảnh tham chiếu, hoặc cả hai.</td></tr>
+    <tr><td><b class="ui">Quét lại</b> · <b class="ui">Mở thư mục</b> · 🗑</td><td>Đọc lại thư mục · mở thư mục dự án trong Explorer · xoá dự án khỏi app. App hỏi thêm có xoá cả ảnh tham chiếu không: chọn <b>Giữ ảnh</b> nếu chưa chắc.</td></tr>
+  </table>
+  <figure>
+    <img src="img/13-clips.jpg">
+    <figcaption>Hình 8.1 · Tab Clip: ô "Làm lại", ô "Chạy riêng" theo cảnh / clip đã tick, ô tìm kiếm và bảng clip.</figcaption>
+  </figure>
+  <h3>Chạy một phần</h3>
+  <ul>
+    <li><b>Chạy riêng theo cảnh:</b> chọn cảnh ở ô <i>Chọn cảnh…</i> → <b class="ui">Chạy cảnh đã chọn</b>.</li>
+    <li><b>Chạy clip đã tick:</b> tick ô đầu dòng (chọn được qua nhiều trang) → <b class="ui">Chạy N clip đã tick</b>. Mặc định app bỏ qua clip đã xong; tick <i>Tạo lại cả clip đã xong</i> nếu muốn làm lại cả những clip đó.</li>
+    <li>Ở từng dòng: <b class="ui">Chạy ngay</b> / <b class="ui">Tạo lại</b> (chỉ clip đó), <b class="ui">Dừng</b>, <b class="ui">Chi tiết</b>.</li>
+  </ul>
+</section>
+
+<section>
+  <h3>Xem và sửa một clip</h3>
+  <p>Bấm vào một dòng (hoặc <b class="ui">Chi tiết</b>) để mở rộng: prompt Seedance (gửi nguyên văn, sửa được), thời lượng, video đã tạo, lời thoại, mã task.</p>
+  <figure>
+    <img src="img/14-clip-detail.jpg">
+    <figcaption>Hình 8.2 · Chi tiết clip: sửa prompt / thời lượng rồi bấm Lưu, hoặc Lưu &amp; tạo lại.</figcaption>
+  </figure>
+  <h3>Làm lại nhiều clip kèm ghi chú</h3>
+  <ol class="steps">
+    <li>Gõ mã vào ô <i>Làm lại</i>: <code>005, 012-015, 019A</code>.</li>
+    <li>Nếu muốn, ghi chú sửa bằng <b>tiếng Anh</b>. Ghi chú được ghép vào cuối prompt, vd <code>keep CHAR_YVO's backpack on her left shoulder</code>.</li>
+    <li>Bấm <b class="ui">Làm lại các clip này</b>. Clip làm lại được ưu tiên chạy trước. Video mới lưu thành <code>005_v2.mp4</code>, video cũ vẫn còn.</li>
+  </ol>
+  <h3>Clip bị chặn nội dung</h3>
+  <p>Clip lỗi vì vi phạm nội dung có khung đỏ <b>Vì sao bị chặn</b>. Bấm <b class="ui">Phân tích vì sao bị chặn</b>: AI (BytePlus) đọc prompt và ảnh, chỉ ra từng đoạn có thể bị chặn, lý do và cách sửa. Bấm <b class="ui">Dùng prompt đã sửa</b> rồi <b class="ui">Lưu &amp; tạo lại</b>.</p>
+  <div class="note tip"><b class="t">Trạng thái clip</b><span class="pill p-ready">Chờ chạy</span> chờ đến lượt · <span class="pill p-miss">Chờ ảnh</span> thiếu ảnh tham chiếu · <span class="pill p-run">Đang tạo</span> · <span class="pill p-done">Xong</span> · <span class="pill p-err">Lỗi</span> · <span class="pill p-ready">Đã huỷ</span>. Dòng nhỏ "lần thử N" là số lần đã thử; "gửi qua BOTSD / 888API" nghĩa là clip đã gửi ở nguồn khác với nguồn hiện tại (app vẫn theo dõi tiếp ở đúng nguồn).</div>
+</section>
+
+<!-- ============ 9 ============ -->
+<section class="chapter">
+  <h2><span class="num">9</span>Virtual Portrait, Thư viện, Task video, Tiến trình</h2>
+  <h3>Virtual Portrait (cần AK/SK)</h3>
+  <p>Đây là thư viện asset riêng của bạn trên BytePlus. Ảnh nhân vật đưa vào đây, khi ở trạng thái <span class="pill p-done">Active</span>, sẽ được gửi cho Seedance dưới dạng <code>asset://…</code>, nên không bị chặn mặt người.</p>
+  <figure>
+    <img src="img/22-assets.jpg">
+    <figcaption>Hình 9.1 · Virtual Portrait: chọn / tạo asset group, đẩy ảnh từ Thư viện hoặc từ URL, trạng thái từng asset.</figcaption>
+  </figure>
+  <ul>
+    <li><b class="ui">Tạo group</b> (vd theo tên phim / nhân vật). Lần đầu cần <b>ký thư uỷ quyền</b> trên console BytePlus.</li>
+    <li><b class="ui">Đẩy từ thư viện</b> / <b class="ui">Đẩy từ URL</b>. Chờ trạng thái chuyển từ <i>Đang xử lý</i> sang <i>Active</i>. Ảnh <i>Lỗi</i> (không qua kiểm duyệt) thì thay bằng ảnh khác.</li>
+    <li>Công tắc <i>Tự đẩy mọi ảnh/video vừa tạo</i>: bật thì mọi ảnh / video mới tạo được tự đẩy lên Virtual Portrait.</li>
+    <li>Với Kịch bản hàng loạt (nguồn BytePlus), app tự tạo <b>asset group riêng cho từng dự án</b>; không cần làm tay.</li>
+  </ul>
+  <h3>Thư viện</h3>
+  <figure>
+    <img src="img/19-library.jpg">
+    <figcaption>Hình 9.2 · Thư viện: lọc Ảnh / Video theo dự án, tick nhiều file để tải về hàng loạt; mỗi file có nút Đẩy VP, → Video, → Ảnh.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h3>Task video</h3>
+  <figure>
+    <img src="img/20-tasks.jpg">
+    <figcaption>Hình 9.3 · Task video: các task Seedance trên BytePlus, trạng thái, thông số, lỗi; tải lại video, copy ID, huỷ / xoá.</figcaption>
+  </figure>
+  <p>URL video trên BytePlus chỉ sống <b>24 giờ</b>, task ID lưu 7 ngày. Video chưa kịp tải về thì vào đây bấm <b class="ui">Tải về</b> trước khi hết hạn.</p>
+  <h3>Tiến trình</h3>
+  <figure>
+    <img src="img/21-jobs.jpg">
+    <figcaption>Hình 9.4 · Tiến trình: lịch sử việc chạy nền. Bấm vào một dòng để xem log chi tiết.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ 10 ============ -->
+<section class="chapter">
+  <h2><span class="num">10</span>Lỗi thường gặp và cách xử lý</h2>
+  <table>
+    <tr><th style="width:36%">Thông báo</th><th>Nguyên nhân · cách xử lý</th></tr>
+    <tr><td><code>ModelNotOpen</code></td><td>Model chưa được kích hoạt trên tài khoản BytePlus. Vào console › ModelArk › kích hoạt model đó, hoặc chọn model khác.</td></tr>
+    <tr><td><code>InputImageSensitiveContentDetected</code> / ảnh có người thật</td><td>Ảnh tham chiếu bị coi là người thật. Đưa ảnh vào Virtual Portrait (asset Active), hoặc tạo lại ảnh bằng Seedream 5.0.</td></tr>
+    <tr><td><code>…SensitiveContentDetected</code> (prompt / video)</td><td>Nội dung prompt bị chặn. Bấm <b class="ui">Phân tích vì sao bị chặn</b>, sửa đoạn được chỉ ra, rồi tạo lại.</td></tr>
+    <tr><td>429 / "BytePlus đang giới hạn tốc độ – tạm nghỉ đến …"</td><td>Gửi quá nhanh. App tự chờ rồi gửi lại. Nếu gặp thường xuyên, giảm <i>Chạy song song</i>.</td></tr>
+    <tr><td>API key sai / 401</td><td>Key hết hạn hoặc dán thiếu. Dán lại ở Cài đặt → Kiểm tra kết nối.</td></tr>
+    <tr><td>"888API chưa lấy được link ảnh – chạy bây giờ sẽ lỗi"</td><td>Chưa bật TOS hoặc thiếu AK/SK. Bấm <b class="ui">Đổi sang Litterbox</b>, hoặc bật TOS rồi bấm <b class="ui">Kiểm tra lại</b>.</td></tr>
+    <tr><td>BOTSD / 888API: hết số dư (402), đạt giới hạn task (409)</td><td>Nạp thêm Point / số dư. Với 409, app tự chờ 30 giây rồi gửi tiếp.</td></tr>
+    <tr><td>"Mất kết nối backend" (góc dưới trái)</td><td>Phần chạy ngầm của app đã tắt. Thoát app ở khay hệ thống rồi mở lại.</td></tr>
+    <tr><td>Clip "Chờ ảnh" mãi không chạy</td><td>Còn mã chưa có ảnh hoặc ảnh AI chưa duyệt. Vào tab Ảnh tham chiếu, lọc <i>Thiếu</i> / <i>Chờ duyệt</i>.</td></tr>
+  </table>
+  <h3>Báo lỗi cho người hỗ trợ</h3>
+  <p>Gửi kèm file log <code>%USERPROFILE%\.byteplus-ark\logs\ark-studio.log</code> (dán đường dẫn này vào thanh địa chỉ của File Explorer để mở), kèm ảnh chụp màn hình và mã clip / mã task bị lỗi.</p>
+  <h3>Gỡ cài đặt</h3>
+  <p>Thoát app (khay › Thoát), rồi vào <i>Cài đặt Windows › Ứng dụng › Ark Studio › Gỡ cài đặt</i>. Dữ liệu và key ở <code>%USERPROFILE%\.byteplus-ark</code> được giữ lại; xoá thư mục này nếu muốn bỏ hẳn. Ảnh / video ở Thư mục lưu và thư mục dự án không bị xoá.</p>
+</section>
+
+<!-- ============ 11 ============ -->
+<section class="chapter">
+  <h2><span class="num">11</span>Những điểm cần lưu ý</h2>
+  <h3>Để không tốn tiền vô ích</h3>
+  <ul class="checklist">
+    <li>Chạy thử <b>1–2 cảnh</b> bằng <i>Chạy riêng</i> trước khi bấm <i>Chạy tất cả clip</i>.</li>
+    <li>Xem dòng kiểm tra "Theo … vừa N/N clip" trong Cấu hình chạy: không có clip bị cắt thời lượng, không có clip vượt số ảnh.</li>
+    <li>Duyệt kỹ ảnh nhân vật trước khi chạy video. Đừng bật <i>Tự duyệt ảnh AI</i> khi chưa chắc prompt ảnh tốt.</li>
+    <li>BOTSD / 888API không huỷ được task: bấm Dừng thì tiền vẫn bị trừ.</li>
+    <li>Clip lỗi vì nội dung: phân tích và sửa prompt trước, đừng bấm chạy lại nguyên trạng nhiều lần.</li>
+    <li>Không để <i>Chạy song song</i> quá cao (nên để 3): dễ bị 429, phải chờ lâu hơn.</li>
+  </ul>
+  <h3>Về file và thư mục</h3>
+  <ul>
+    <li>Không đổi tên / chuyển thư mục dự án khi dự án đang chạy. Nếu đã chuyển, mở lại bằng <b class="ui">Mở thư mục dự án</b>.</li>
+    <li>Không xoá video trong <code>Videos/</code> nếu không muốn làm lại: cảnh đã Xong mà mất video sẽ quay về hàng chờ khi quét lại.</li>
+    <li>Ảnh cũ nằm trong <code>Ảnh tham chiếu/_cu/</code>. Muốn dùng lại ảnh cũ thì chép ra ngoài rồi <b class="ui">Quét lại</b>.</li>
+  </ul>
+  <h3>Bảo mật</h3>
+  <ul>
+    <li>Không gửi thư mục <code>%USERPROFILE%\.byteplus-ark</code> cho người khác vì nó chứa key và mật khẩu BOTSD.</li>
+    <li>Ảnh tạm đặt trên Litterbox thì ai có link cũng xem được. Phim chưa công bố nên dùng TOS.</li>
+  </ul>
+
+  <h2 style="margin-top:18px">Câu hỏi thường gặp</h2>
+  <p><b>Đóng cửa sổ có làm dừng video đang tạo không?</b><br>Không. App chạy nền đến khi xong việc rồi tự thoát. Muốn thoát ngay thì chuột phải biểu tượng ở khay › Thoát.</p>
+  <p><b>Video / ảnh lưu ở đâu?</b><br>Dự án theo thư mục: <code>Videos/</code> và <code>Ảnh tham chiếu/</code> của thư mục dự án. Tạo lẻ: <code>&lt;Thư mục lưu&gt;\images</code> và <code>\videos</code>. Khay › <i>Mở thư mục lưu</i> để mở nhanh.</p>
+  <p><b>Có chạy 2 dự án cùng lúc được không?</b><br>Được. Mỗi dự án có nút Chạy / Tạm dừng riêng, nhưng hai dự án dùng chung giới hạn tốc độ của tài khoản.</p>
+  <p><b>Sửa Excel rồi thì làm gì?</b><br>Tạm dừng dự án → <b class="ui">Quét lại</b>. Clip có prompt / ảnh thay đổi quay về hàng chờ; ảnh đã gán và prompt ảnh đã sửa tay được giữ nguyên.</p>
+  <p><b>Chuyển sang máy khác?</b><br>Cài app ở máy mới, nhập lại key, rồi mở lại đúng thư mục dự án. Video và ảnh đã có trong thư mục được nhận lại tự động.</p>
+</section>
+
+</body>
+</html>
