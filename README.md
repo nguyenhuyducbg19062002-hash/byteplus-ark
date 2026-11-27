@@ -44,6 +44,13 @@ Sau đó mở **Ark Studio** trên Desktop / Start Menu – không cần cmd, np
   Ảnh / video theo **Thư mục lưu** (Cài đặt); chưa đặt thì mặc định `Documents\BytePlus Ark Studio`. Cài lại / cập nhật không mất dữ liệu.
 - Cập nhật: thoát app (khay › Thoát) rồi chạy lại `packaging\build-desktop.bat`.
 
+### Gửi app cho người khác
+`packaging\build-desktop.bat -NoInstall` (cần Inno Setup 6) tạo sẵn `build-desktop\Gui-cho-nguoi-dung\` gồm
+`ArkStudio-Setup-<ver>.exe` + `Huong dan su dung Ark Studio.pdf` + `DOC TRUOC - HUONG DAN.txt`, và file nén
+`build-desktop\ArkStudio-<ver>-gui-nguoi-dung.zip` – gửi file zip này là đủ.
+Hướng dẫn PDF: `docs\HuongDan-ArkStudio.pdf`; nguồn HTML, ảnh chụp và script chụp / in ở `docs\huong-dan\`
+(chạy lại `shots.js` với một backend riêng: port khác, `-Duser.home` tạm, key giả – rồi `pdf.js`).
+
 ## Chạy bản dev
 
 Yêu cầu: JDK 17+, Node 18+. Không cần cài Maven vì đã có `mvnw`.
